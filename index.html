@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Shikoku 3D — 松山の電車を3Dで</title>
+  <meta name="description" content="松山を中心に、四国の鉄道の列車の動きを3D地図上で可視化するデモ">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="map"></div>
+
+  <aside id="panel">
+    <header class="panel-head">
+      <div>
+        <h1>Mini Shikoku 3D</h1>
+        <p class="sub">松山・四国の鉄道をリアルタイム3Dで</p>
+      </div>
+      <button id="panel-toggle" class="icon" aria-label="パネルを開閉">☰</button>
+    </header>
+
+    <div class="panel-body">
+      <section class="clock-box">
+        <div class="clock-row">
+          <span id="clock" class="clock">--:--:--</span>
+          <span class="count"><b id="train-count">0</b> 本運行中</span>
+        </div>
+        <div class="row" id="speeds"></div>
+        <div class="row">
+          <button id="pause" aria-label="一時停止">❚❚</button>
+          <button id="now">現在時刻</button>
+          <input id="jump" type="time" aria-label="時刻を指定">
+        </div>
+      </section>
+
+      <section>
+        <h2>エリア</h2>
+        <div class="row wrap">
+          <button data-view="matsuyama">松山 中心部</button>
+          <button data-view="dogo">道後温泉</button>
+          <button data-view="matsuyama_wide">松山 郊外</button>
+          <button data-view="takamatsu">高松</button>
+          <button data-view="tokushima">徳島</button>
+          <button data-view="kochi">高知</button>
+          <button data-view="shikoku">四国全体</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>路線</h2>
+        <div id="legend"></div>
+      </section>
+
+      <section>
+        <h2>表示</h2>
+        <div class="row wrap">
+          <button id="theme"></button>
+          <button id="buildings" aria-pressed="true">3D建物</button>
+          <button id="terrain" aria-pressed="false">地形</button>
+        </div>
+      </section>
+
+      <p class="note">
+        列車の位置は公開時刻表を参考にした<strong>運行パターンからの推計</strong>で、実際の運行・遅延は反映していません。
+      </p>
+    </div>
+  </aside>
+
+  <div id="info" hidden>
+    <div class="info-head">
+      <i id="info-swatch"></i>
+      <div>
+        <div id="info-name"></div>
+        <div id="info-dest"></div>
+      </div>
+      <button id="info-close" class="icon" aria-label="閉じる">×</button>
+    </div>
+    <div id="info-status"></div>
+    <div id="info-detail"></div>
+    <button id="info-follow" aria-pressed="false">この列車を追跡</button>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="data/network.js"></script>
+  <script src="js/sim.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
