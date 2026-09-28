@@ -95,6 +95,38 @@ section { border-top: 1px solid var(--line); padding-top: 2px; }
 #info-status { margin-top: 10px; font-weight: 500; }
 #info-detail { margin-top: 4px; color: var(--muted); font-size: 12px; }
 #info-follow { margin-top: 10px; width: 100%; }
+#info-stops { list-style: none; margin: 10px 0 0; padding: 0 0 0 4px; }
+#info-stops li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 10px;
+  padding: 3px 0 3px 14px;
+  font-size: 12.5px;
+}
+/* 路線色の縦線と駅の丸で停車駅を示す */
+#info-stops li::before {
+  content: "";
+  position: absolute;
+  left: 3px; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--route, #888);
+}
+#info-stops li::after {
+  content: "";
+  position: absolute;
+  left: 0; top: 50%;
+  width: 9px; height: 9px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  background: var(--bg);
+  box-shadow: inset 0 0 0 2px var(--route, #888);
+}
+#info-stops li:first-child::before { top: 50%; }
+#info-stops li:last-child::before { bottom: 50%; }
+#info-stops li.more { color: var(--muted); }
+#info-stops li.more::after { display: none; }
+.stop-time { font-variant-numeric: tabular-nums; color: var(--muted); }
 
 #search { width: 100%; cursor: text; }
 .card-kicker { font-size: 11px; color: var(--muted); }

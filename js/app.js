@@ -551,6 +551,34 @@
       status = `次は ${path[tr.next][0]}（${formatTime(tr.dep + seg.t1).slice(0, 5)} 着予定）`;
     }
     document.getElementById('info-status').textContent = status;
+    renderUpcoming(tr);
+  }
+
+  // 選択中の列車のこの先の停車駅と到着予定 (最大 6 駅 + 終着駅)
+  let lastUpcomingKey = '';
+  function renderUpcoming(tr) {
+    const p = tr.pattern;
+    const rows = p.segs
+      .filter(sg => sg.t1 > tr.elapsed)
+      .map(sg => [p.path[sg.to][0], formatTime(tr.dep + sg.t1).slice(0, 5)]);
+    const shown = rows.length > 7 ? [...rows.slice(0, 6), null, rows[rows.length - 1]] : rows;
+    const key = tr.id + shown.map(r => (r ? r[0] : '…')).join();
+    if (key === lastUpcomingKey) return;
+    lastUpcomingKey = key;
+    const list = document.getElementById('info-stops');
+    list.replaceChildren(...shown.map(r => {
+      const li = document.createElement('li');
+      if (!r) {
+        li.className = 'more';
+        li.textContent = `… ほか ${rows.length - 7} 駅`;
+        return li;
+      }
+      li.innerHTML = '<span class="stop-time"></span><span class="stop-name"></span>';
+      li.querySelector('.stop-time').textContent = r[1];
+      li.querySelector('.stop-name').textContent = r[0];
+      return li;
+    }));
+    list.style.setProperty('--route', tr.service.color);
   }
 
   function renderInfo() {
