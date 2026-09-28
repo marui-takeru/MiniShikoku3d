@@ -30,7 +30,7 @@ body {
 }
 #map { position: absolute; inset: 0; }
 
-button, input {
+button, input, select {
   font: inherit;
   font-size: 13px;
   color: var(--fg);
@@ -41,7 +41,7 @@ button, input {
   cursor: pointer;
 }
 button[aria-pressed="true"] { background: var(--btn-on); color: var(--btn-on-fg); border-color: transparent; }
-button:focus-visible, input:focus-visible { outline: 2px solid var(--btn-on); outline-offset: 2px; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--btn-on); outline-offset: 2px; }
 button.icon { background: transparent; border: none; font-size: 18px; padding: 2px 8px; }
 
 #panel {
@@ -178,7 +178,7 @@ section { border-top: 1px solid var(--line); padding-top: 2px; }
 #reach-legend {
   position: absolute;
   left: 336px; bottom: 16px;
-  width: 280px;
+  width: 310px;
   background: var(--bg);
   backdrop-filter: blur(10px);
   border-radius: 14px;
@@ -191,7 +191,9 @@ section { border-top: 1px solid var(--line); padding-top: 2px; }
 #reach-bands li { display: grid; grid-template-columns: 14px 1fr auto; gap: 8px; align-items: center; padding: 3px 0; }
 #reach-bands i { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 2px var(--bg); }
 .reach-count { color: var(--muted); font-variant-numeric: tabular-nums; }
-.reach-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+.reach-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; color: var(--muted); }
+#reach-recalc { flex: 1; white-space: nowrap; }
+#reach-max { flex: none; }
 body.cinema #reach-legend { display: none; }
 
 #cinema-bar { display: none; }

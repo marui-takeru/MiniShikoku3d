@@ -95,7 +95,16 @@
   <div id="reach-legend" hidden>
     <div id="reach-title"></div>
     <ol id="reach-bands"></ol>
-    <div class="reach-foot"><span id="reach-total"></span><button id="reach-clear">到達圏を消す</button></div>
+    <div class="reach-foot"><span id="reach-total"></span></div>
+    <div class="row">
+      <select id="reach-max" aria-label="上限時間">
+        <option value="30">30 分</option>
+        <option value="60" selected>60 分</option>
+        <option value="90">90 分</option>
+      </select>
+      <button id="reach-recalc" title="いまのシミュレーション時刻で計算し直す">今の時刻で再計算</button>
+      <button id="reach-clear">消す</button>
+    </div>
     <p class="note">乗り換えは 1 分以上、500m 以内の駅は徒歩連絡として計算。推計ダイヤにもとづく参考値です。</p>
   </div>
 
@@ -128,7 +137,7 @@
       <button id="station-close" class="icon" aria-label="閉じる">×</button>
     </div>
     <ol id="station-deps"></ol>
-    <button id="station-reach">ここから 60 分で行ける範囲を表示</button>
+    <button id="station-reach">ここから行ける範囲（到達圏）を表示</button>
     <p id="station-empty" class="note" hidden>3 時間以内に発車する列車はありません。</p>
     <p class="note">発車時刻は運行パターンからの推計です。</p>
   </div>

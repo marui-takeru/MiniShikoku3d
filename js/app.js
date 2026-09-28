@@ -608,7 +608,8 @@
 
   // ---------------------------------------------------------------- 到達圏
   // 所要時間の段階と色 (青の単色ランプ。近いほど濃い。ライト/ダークで別の段を使う)
-  const REACH_BANDS = [10, 20, 30, 45, 60];
+  const REACH_BAND_SETS = { 30: [5, 10, 15, 20, 30], 60: [10, 20, 30, 45, 60], 90: [15, 30, 45, 60, 90] };
+  let REACH_BANDS = REACH_BAND_SETS[60];
   const REACH_COLORS = {
     light: ['#0d366b', '#184f95', '#256abf', '#3987e5', '#86b6ef'],
     dark: ['#cde2fb', '#9ec5f4', '#6da7ec', '#3987e5', '#256abf'],
@@ -636,11 +637,14 @@
     };
   }
 
-  function showReach(name, c) {
+  function showReach(name, c, { fit = true } = {}) {
     const t0 = ((simTime() % 86400) + 86400) % 86400;
-    const results = sim.reachFrom(name, c, t0, { maxMinutes: 60, isVisible: sv => state.groups[sv.group] });
-    state.reach = { name, c, t0, results };
+    const maxMinutes = Number(document.getElementById('reach-max').value);
+    REACH_BANDS = REACH_BAND_SETS[maxMinutes];
+    const results = sim.reachFrom(name, c, t0, { maxMinutes, isVisible: sv => state.groups[sv.group] });
+    state.reach = { name, c, t0, maxMinutes, results };
     applyReachMode();
+    if (!fit) return;
     // スマートフォンでは凡例と発車案内が重なるので発車案内を閉じる
     if (matchMedia('(max-width: 640px)').matches) {
       state.station = null;
@@ -683,7 +687,7 @@
     box.hidden = false;
     const r = state.reach;
     document.getElementById('reach-title').textContent =
-      `${r.name} を ${formatTime(r.t0).slice(0, 5)} に出発して 60 分で行ける駅`;
+      `${r.name} を ${formatTime(r.t0).slice(0, 5)} に出発して ${r.maxMinutes} 分で行ける駅`;
     const counts = REACH_BANDS.map((b, i) =>
       r.results.filter(x => x.minutes > 0 && x.minutes <= b && (i === 0 || x.minutes > REACH_BANDS[i - 1])).length);
     const list = document.getElementById('reach-bands');
@@ -697,6 +701,13 @@
   }
 
   document.getElementById('reach-clear').addEventListener('click', clearReach);
+  // 時刻や上限時間を変えて再計算 (カメラはそのまま、比較しやすいように)
+  document.getElementById('reach-recalc').addEventListener('click', () => {
+    if (state.reach) showReach(state.reach.name, state.reach.c, { fit: false });
+  });
+  document.getElementById('reach-max').addEventListener('change', () => {
+    if (state.reach) showReach(state.reach.name, state.reach.c, { fit: false });
+  });
   document.getElementById('station-reach').addEventListener('click', () => {
     if (state.station) showReach(state.station.name, state.station.c);
   });
