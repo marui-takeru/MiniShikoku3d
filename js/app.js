@@ -255,7 +255,7 @@
       features: NET.lines.map(l => ({
         type: 'Feature',
         properties: { id: l.id, name: l.name, color: l.color, group: l.group, kind: l.kind },
-        geometry: { type: 'LineString', coordinates: l.stations.map(s => s[1]) },
+        geometry: { type: 'LineString', coordinates: l.shape || l.stations.map(s => s[1]) },
       })),
     };
   }
