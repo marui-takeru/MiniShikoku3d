@@ -48,6 +48,8 @@
       this.length = this.cum[this.cum.length - 1];
       this._buildTimeline();
       this.layover = layoverFor(service, departures);
+      // 終着駅に着いた列車も少しの間ホームに停車させる
+      this.linger = service.loop ? 0 : (service.kind === 'tram' ? 60 : 120);
       const lastStop = [...path].reverse().find(p => p[2]);
       this.destination = service.loop ? null : lastStop[0];
     }
@@ -200,7 +202,7 @@
           for (let di = 0; di < p.departures.length; di++) {
             const dep = p.departures[di];
             const elapsed = base - dep;
-            if (elapsed < -wait || elapsed > p.duration) continue;
+            if (elapsed < -wait || elapsed > p.duration + p.linger) continue;
             const st = p.stateAt(Math.max(0, elapsed));
             trains.push({
               id: `${p.service.id}:${pi}:${di}`,

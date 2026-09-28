@@ -113,6 +113,26 @@ section { border-top: 1px solid var(--line); padding-top: 2px; }
 .dep-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dep-wait { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
+#cinema-bar { display: none; }
+body.cinema #panel, body.cinema #info, body.cinema #station,
+body.cinema .maplibregl-ctrl-group { display: none; }
+body.cinema #cinema-bar {
+  display: flex;
+  position: absolute;
+  left: 16px; bottom: 16px;
+  align-items: center;
+  gap: 12px;
+}
+#cinema-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+}
+#cinema-clock { font-variant-numeric: tabular-nums; margin-left: 6px; font-weight: 500; }
+#cinema-exit { opacity: 0.35; }
+#cinema-exit:hover, #cinema-exit:focus-visible { opacity: 1; }
+
 @media (max-width: 640px) {
   #panel { top: 8px; left: 8px; right: 8px; width: auto; max-height: 55%; }
   #info, #station { top: auto; bottom: 8px; left: 8px; right: 8px; width: auto; max-height: 45%; overflow-y: auto; }

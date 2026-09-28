@@ -378,7 +378,6 @@
   }
 
   const WINDOW_COLOR = '#22303c';
-  const ROOF_COLOR = '#9aa3ab';
 
   function trainFeatures(trains, scale) {
     const features = [];
@@ -418,9 +417,9 @@
         if (k === 0) lights.push(light(offset(fc, brg, Math.min(L * 0.15, 3 * scale)), '#fff6d8'));
         if (k === sv.cars - 1 || head - (k + 1) * (L + gap) <= 0) lights.push(light(bc, '#ff3b30'));
         const geometry = { type: 'Polygon', coordinates: [ring] };
-        // 車体・窓・屋根を積み重ねて電車らしく見せる
+        // 車体・窓の帯・上部車体を積み重ねて電車らしく見せる (上から見ても路線色が分かるよう屋根も路線色)
         for (const [from, to, color] of [
-          [0, 0.5, sv.color], [0.5, 0.78, WINDOW_COLOR], [0.78, 0.92, sv.color], [0.92, 1, ROOF_COLOR],
+          [0, 0.5, sv.color], [0.5, 0.78, WINDOW_COLOR], [0.78, 1, sv.color],
         ]) {
           features.push({
             type: 'Feature',
@@ -445,6 +444,7 @@
     lastFrame = now;
     const t = simTime();
     document.getElementById('clock').textContent = formatTime(t);
+    document.getElementById('cinema-clock').textContent = formatTime(t).slice(0, 5);
     if (!map.getSource('trains')) return;
     updateSun(((t % 86400) + 86400) % 86400);
     const trains = sim.trainsAt(((t % 86400) + 86400) % 86400, sv => state.groups[sv.group]);
@@ -512,7 +512,7 @@
     if (tr.waiting) {
       status = `${path[0][0]} で発車待ち（${formatTime(tr.dep).slice(0, 5)} 発）`;
     } else if (tr.stopped && tr.at === path.length - 1) {
-      status = `${path[tr.at][0]} に到着`;
+      status = `${path[tr.at][0]} に到着しました`;
     } else if (tr.stopped) {
       const seg = tr.pattern.segs[tr.seg];
       status = `${path[tr.at][0]} に停車中（${formatTime(tr.dep + seg.t0).slice(0, 5)} 発）`;
@@ -726,6 +726,49 @@
     if (state.terrain && map.getPitch() < 50) map.easeTo({ pitch: 60 });
   });
   renderToggles();
+
+  // ---------------------------------------------------------------- 撮影モード・共有
+  // 撮影モード: パネル類を隠し、カメラをゆっくり回転させる (動画・GIF 撮影用)
+  let cinemaFrame = null;
+  function setCinema(on) {
+    document.body.classList.toggle('cinema', on);
+    if (cinemaFrame) cancelAnimationFrame(cinemaFrame);
+    cinemaFrame = null;
+    if (!on) return;
+    let last = performance.now();
+    const spin = now => {
+      const dt = now - last;
+      last = now;
+      // 利用者がドラッグ中のときは回さない (追跡中はカメラが常に動いているので回す)
+      if (state.follow || !map.isMoving()) map.setBearing(map.getBearing() + dt * 0.004);
+      cinemaFrame = requestAnimationFrame(spin);
+    };
+    cinemaFrame = requestAnimationFrame(spin);
+  }
+  document.getElementById('cinema').addEventListener('click', () => setCinema(true));
+  document.getElementById('cinema-exit').addEventListener('click', () => setCinema(false));
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && document.body.classList.contains('cinema')) setCinema(false);
+  });
+  if (params.has('cinema')) setCinema(true);
+
+  document.getElementById('share').addEventListener('click', async () => {
+    const url = new URL(location.href);
+    url.searchParams.set('t', formatTime(simTime()).slice(0, 5));
+    if (state.clock.speed !== 1) url.searchParams.set('speed', String(state.clock.speed));
+    else url.searchParams.delete('speed');
+    const btn = document.getElementById('share');
+    try {
+      await navigator.clipboard.writeText(url.toString());
+      btn.textContent = 'コピーしました';
+    } catch (e) {
+      window.prompt('このリンクをコピーしてください', url.toString());
+    }
+    setTimeout(() => { btn.textContent = 'この景色を共有'; }, 2000);
+  });
+
+  // スマートフォンでは最初はパネルを畳んでおく
+  if (matchMedia('(max-width: 640px)').matches) document.getElementById('panel').classList.add('collapsed');
 
   document.getElementById('panel-toggle').addEventListener('click', () => {
     document.getElementById('panel').classList.toggle('collapsed');
