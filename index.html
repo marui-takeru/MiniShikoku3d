@@ -77,6 +77,13 @@
     </div>
   </aside>
 
+  <div id="reach-legend" hidden>
+    <div id="reach-title"></div>
+    <ol id="reach-bands"></ol>
+    <div class="reach-foot"><span id="reach-total"></span><button id="reach-clear">到達圏を消す</button></div>
+    <p class="note">乗り換えは 1 分以上、500m 以内の駅は徒歩連絡として計算。推計ダイヤにもとづく参考値です。</p>
+  </div>
+
   <div id="cinema-bar">
     <span id="cinema-title">Mini Shikoku 3D <span id="cinema-clock"></span></span>
     <button id="cinema-exit">撮影モードを終了（Esc）</button>
@@ -105,6 +112,7 @@
       <button id="station-close" class="icon" aria-label="閉じる">×</button>
     </div>
     <ol id="station-deps"></ol>
+    <button id="station-reach">ここから 60 分で行ける範囲を表示</button>
     <p id="station-empty" class="note" hidden>3 時間以内に発車する列車はありません。</p>
     <p class="note">発車時刻は運行パターンからの推計です。</p>
   </div>

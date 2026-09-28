@@ -170,6 +170,96 @@
       }
     }
 
+    // ---- 到達圏 (Connection Scan Algorithm) ----
+    // 同名で 400m 以内の駅を 1 つの駅としてまとめ、駅間の乗り換え徒歩も考慮する
+    _stations() {
+      if (this._st) return this._st;
+      const list = [];
+      const idOf = (name, c) => {
+        let st = list.find(x => x.name === name && haversine(x.c, c) < 400);
+        if (!st) {
+          st = { id: list.length, name, c };
+          list.push(st);
+        }
+        return st.id;
+      };
+      for (const p of this.patterns) {
+        p.stopIds = p.path.map(q => (q[2] ? idOf(q[0], q[1]) : -1));
+      }
+      // 徒歩連絡: 別の駅でも 500m 以内なら歩いて乗り換えられる (迂回率 1.3, 時速 4.3km, +1分)
+      const walks = list.map(() => []);
+      for (const a of list) {
+        for (const b of list) {
+          if (a.id >= b.id) continue;
+          const d = haversine(a.c, b.c);
+          if (d > 500) continue;
+          const sec = d * 1.3 / 1.2 + 60;
+          walks[a.id].push([b.id, sec]);
+          walks[b.id].push([a.id, sec]);
+        }
+      }
+      this._st = { list, walks };
+      return this._st;
+    }
+
+    _connections(isVisible) {
+      const { list } = this._stations();
+      const key = this.patterns.map(p => (isVisible && !isVisible(p.service) ? 0 : 1)).join('');
+      if (this._conn && this._conn.key === key) return this._conn.items;
+      const items = [];
+      let trip = 0;
+      for (const p of this.patterns) {
+        if (isVisible && !isVisible(p.service)) continue;
+        for (const dep of p.departures) {
+          for (const sg of p.segs) {
+            items.push([dep + sg.t0, dep + sg.t1, p.stopIds[sg.from], p.stopIds[sg.to], trip, p]);
+          }
+          trip++;
+        }
+      }
+      items.sort((a, b) => a[0] - b[0]);
+      this._conn = { key, items, stations: list.length };
+      return items;
+    }
+
+    // name 駅 (座標 c 付近) を時刻 t0 に出発したとき、各駅に最も早く着く時刻
+    reachFrom(name, c, t0, { maxMinutes = 60, isVisible } = {}) {
+      const { list, walks } = this._stations();
+      const conns = this._connections(isVisible);
+      const limit = t0 + maxMinutes * 60;
+      const arr = new Float64Array(list.length).fill(Infinity);
+      const via = new Array(list.length).fill(null);
+      const origin = list.filter(x => x.name === name && haversine(x.c, c) < 400);
+      const relax = (id, time, how) => {
+        if (time >= arr[id]) return;
+        arr[id] = time;
+        via[id] = how;
+        for (const [to, sec] of walks[id]) {
+          if (time + sec < arr[to]) {
+            arr[to] = time + sec;
+            via[to] = { walk: true, from: id };
+          }
+        }
+      };
+      for (const o of origin) relax(o.id, t0, null);
+      const boarded = new Set();
+      const CHANGE = 60; // 乗り換えの最低時間 [秒]
+      let lo = 0, hi = conns.length;
+      while (lo < hi) { const m = (lo + hi) >> 1; if (conns[m][0] < t0) lo = m + 1; else hi = m; }
+      for (let i = lo; i < conns.length; i++) {
+        const [dep, arrT, from, to, trip, p] = conns[i];
+        if (dep > limit) break;
+        const onBoard = boarded.has(trip);
+        const isOrigin = origin.some(o => o.id === from);
+        if (!onBoard && arr[from] + (isOrigin ? 0 : CHANGE) > dep) continue;
+        boarded.add(trip);
+        if (arrT <= limit) relax(to, arrT, { service: p.service, pattern: p });
+      }
+      return list
+        .map(st => ({ ...st, time: arr[st.id], minutes: (arr[st.id] - t0) / 60, via: via[st.id] }))
+        .filter(x => x.time <= limit);
+    }
+
     // 駅の発車案内: 時刻 t 以降に name 駅 (座標 c の近く) を発車する列車
     departuresAt(name, c, t, { limit = 10, horizon = 3 * 3600, isVisible } = {}) {
       const out = [];

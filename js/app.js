@@ -51,6 +51,7 @@
     groups: Object.fromEntries(NET.groups.map(g => [g.id, true])),
     selected: null,
     station: null,
+    reach: null,
     night: 0,
     follow: false,
     clock: { base: jstNow(), realBase: performance.now(), speed: 1, paused: false },
@@ -209,6 +210,35 @@
         },
       });
     }
+
+    // 到達圏
+    map.addSource('reach', { type: 'geojson', data: reachGeoJSON() });
+    map.addLayer({
+      id: 'reach', type: 'circle', source: 'reach',
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, ['case', ['get', 'origin'], 7, 4], 14, ['case', ['get', 'origin'], 14, 9]],
+        'circle-color': ['get', 'color'],
+        'circle-stroke-color': dark ? '#10141b' : '#ffffff',
+        'circle-stroke-width': 2,
+      },
+    });
+    map.addLayer({
+      id: 'reach-labels', type: 'symbol', source: 'reach', minzoom: 10.5,
+      layout: {
+        'text-field': ['case', ['get', 'origin'], ['concat', ['get', 'name'], ' 出発'], ['concat', ['get', 'name'], ' ', ['get', 'label']]],
+        'text-font': ['Noto Sans Regular'],
+        'text-size': 12,
+        'text-offset': [0, -1.3],
+        'text-anchor': 'bottom',
+        'text-optional': true,
+      },
+      paint: {
+        'text-color': dark ? '#e8ecf1' : '#1d2733',
+        'text-halo-color': dark ? '#0b0e13' : '#ffffff',
+        'text-halo-width': 1.6,
+      },
+    });
+    applyReachMode();
 
     // 列車
     map.addSource('train-glow', { type: 'geojson', data: empty() });
@@ -544,6 +574,101 @@
     followBtn.setAttribute('aria-pressed', String(state.follow));
     box.hidden = false;
   }
+
+  // ---------------------------------------------------------------- 到達圏
+  // 所要時間の段階と色 (青の単色ランプ。近いほど濃い。ライト/ダークで別の段を使う)
+  const REACH_BANDS = [10, 20, 30, 45, 60];
+  const REACH_COLORS = {
+    light: ['#0d366b', '#184f95', '#256abf', '#3987e5', '#86b6ef'],
+    dark: ['#cde2fb', '#9ec5f4', '#6da7ec', '#3987e5', '#256abf'],
+  };
+
+  function reachColor(minutes) {
+    const i = REACH_BANDS.findIndex(b => minutes <= b);
+    return REACH_COLORS[state.theme][i < 0 ? REACH_BANDS.length - 1 : i];
+  }
+
+  function reachGeoJSON() {
+    if (!state.reach) return empty();
+    return {
+      type: 'FeatureCollection',
+      features: state.reach.results.map(r => ({
+        type: 'Feature',
+        properties: {
+          name: r.name,
+          origin: r.minutes === 0,
+          label: `${Math.round(r.minutes)}分`,
+          color: r.minutes === 0 ? (state.theme === 'dark' ? '#ffffff' : '#000000') : reachColor(r.minutes),
+        },
+        geometry: { type: 'Point', coordinates: r.c },
+      })),
+    };
+  }
+
+  function showReach(name, c) {
+    const t0 = ((simTime() % 86400) + 86400) % 86400;
+    const results = sim.reachFrom(name, c, t0, { maxMinutes: 60, isVisible: sv => state.groups[sv.group] });
+    state.reach = { name, c, t0, results };
+    applyReachMode();
+    // スマートフォンでは凡例と発車案内が重なるので発車案内を閉じる
+    if (matchMedia('(max-width: 640px)').matches) {
+      state.station = null;
+      renderStation();
+    }
+    // 到達できた範囲が収まるようにカメラを合わせる
+    const b = new maplibregl.LngLatBounds();
+    results.forEach(r => b.extend(r.c));
+    map.fitBounds(b, { padding: { top: 80, bottom: 80, left: 340, right: 320 }, maxZoom: 14.5, pitch: 40, duration: 1500 });
+  }
+
+  function clearReach() {
+    state.reach = null;
+    applyReachMode();
+  }
+
+  function applyReachMode() {
+    const on = !!state.reach;
+    if (map.getSource('reach')) map.getSource('reach').setData(reachGeoJSON());
+    // 到達圏の表示中は線路と駅を控えめにする
+    if (map.getLayer('tracks')) {
+      map.setPaintProperty('tracks', 'line-opacity', on ? 0.3 : 1);
+      map.setPaintProperty('tracks-casing', 'line-opacity', on ? 0.2 : 0.7);
+      for (const k of ['rail', 'tram']) {
+        map.setPaintProperty(`stations-${k}`, 'circle-opacity', on ? 0.25 : 1);
+        map.setPaintProperty(`stations-${k}`, 'circle-stroke-opacity', on ? 0.25 : 1);
+        map.setLayoutProperty(`labels-${k}`, 'visibility', on ? 'none' : 'visible');
+      }
+    }
+    if (map.getLayer('trains')) map.setPaintProperty('trains', 'fill-extrusion-opacity', on ? 0.25 : 0.95);
+    renderReachLegend();
+  }
+
+  function renderReachLegend() {
+    const box = document.getElementById('reach-legend');
+    if (!state.reach) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    const r = state.reach;
+    document.getElementById('reach-title').textContent =
+      `${r.name} を ${formatTime(r.t0).slice(0, 5)} に出発して 60 分で行ける駅`;
+    const counts = REACH_BANDS.map((b, i) =>
+      r.results.filter(x => x.minutes > 0 && x.minutes <= b && (i === 0 || x.minutes > REACH_BANDS[i - 1])).length);
+    const list = document.getElementById('reach-bands');
+    list.replaceChildren(...REACH_BANDS.map((b, i) => {
+      const li = document.createElement('li');
+      li.innerHTML = `<i></i><span>${i === 0 ? 0 : REACH_BANDS[i - 1]}〜${b}分</span><span class="reach-count">${counts[i]}駅</span>`;
+      li.querySelector('i').style.background = REACH_COLORS[state.theme][i];
+      return li;
+    }));
+    document.getElementById('reach-total').textContent = `合計 ${r.results.length - 1} 駅`;
+  }
+
+  document.getElementById('reach-clear').addEventListener('click', clearReach);
+  document.getElementById('station-reach').addEventListener('click', () => {
+    if (state.station) showReach(state.station.name, state.station.c);
+  });
 
   // ---------------------------------------------------------------- 駅の発車案内
   function shortName(sv) {

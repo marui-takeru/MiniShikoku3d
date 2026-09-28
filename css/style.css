@@ -113,6 +113,26 @@ section { border-top: 1px solid var(--line); padding-top: 2px; }
 .dep-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dep-wait { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
+#station-reach { margin-top: 10px; width: 100%; }
+#reach-legend {
+  position: absolute;
+  left: 336px; bottom: 16px;
+  width: 280px;
+  background: var(--bg);
+  backdrop-filter: blur(10px);
+  border-radius: 14px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+  padding: 12px 14px;
+  font-size: 13px;
+}
+#reach-title { font-weight: 600; line-height: 1.4; }
+#reach-bands { list-style: none; margin: 8px 0 0; padding: 0; }
+#reach-bands li { display: grid; grid-template-columns: 14px 1fr auto; gap: 8px; align-items: center; padding: 3px 0; }
+#reach-bands i { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 2px var(--bg); }
+.reach-count { color: var(--muted); font-variant-numeric: tabular-nums; }
+.reach-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+body.cinema #reach-legend { display: none; }
+
 #cinema-bar { display: none; }
 body.cinema #panel, body.cinema #info, body.cinema #station,
 body.cinema .maplibregl-ctrl-group { display: none; }
@@ -135,6 +155,7 @@ body.cinema #cinema-bar {
 
 @media (max-width: 640px) {
   #panel { top: 8px; left: 8px; right: 8px; width: auto; max-height: 55%; }
+  #reach-legend { left: 8px; right: 8px; width: auto; bottom: 8px; }
   #info, #station { top: auto; bottom: 8px; left: 8px; right: 8px; width: auto; max-height: 45%; overflow-y: auto; }
   .clock { font-size: 24px; }
 }
