@@ -466,6 +466,19 @@
     return { type: 'Feature', properties: { color }, geometry: { type: 'Point', coordinates: c } };
   }
 
+  // 画面の外 (表示範囲を 30% 広げた外側) の列車は描かない。選択中の列車は常に描く
+  function visibleTrains(trains) {
+    const b = map.getBounds();
+    const padX = (b.getEast() - b.getWest()) * 0.3;
+    const padY = (b.getNorth() - b.getSouth()) * 0.3;
+    const w = b.getWest() - padX, e = b.getEast() + padX, sth = b.getSouth() - padY, n = b.getNorth() + padY;
+    return trains.filter(tr => {
+      if (tr.id === state.selected) return true;
+      const c = tr.pattern.pointAt(tr.dist).c;
+      return c[0] >= w && c[0] <= e && c[1] >= sth && c[1] <= n;
+    });
+  }
+
   let lastTrains = [];
   let lastFrame = 0;
   function frame(now) {
@@ -479,7 +492,7 @@
     updateSun(((t % 86400) + 86400) % 86400);
     const trains = sim.trainsAt(((t % 86400) + 86400) % 86400, sv => state.groups[sv.group]);
     lastTrains = trains;
-    const drawn = trainFeatures(trains, sizeScale());
+    const drawn = trainFeatures(visibleTrains(trains), sizeScale());
     map.getSource('trains').setData(drawn.trains);
     map.getSource('train-lights').setData(state.night > 0.05 ? drawn.lights : empty());
     document.getElementById('train-count').textContent = String(trains.length);
