@@ -47,6 +47,7 @@
       }
       this.length = this.cum[this.cum.length - 1];
       this._buildTimeline();
+      this.layover = layoverFor(service, departures);
       const lastStop = [...path].reverse().find(p => p[2]);
       this.destination = service.loop ? null : lastStop[0];
     }
@@ -125,6 +126,16 @@
     return 0.5 * vmax * a + vmax * (u - a);
   }
 
+  // 始発駅での発車待ち時間 [秒]。環状線は駅に列車が重なるので待たせない。
+  // 続行列車と重ならないよう、最小運転間隔より 1 分短くする。
+  function layoverFor(sv, departures) {
+    if (sv.loop) return 0;
+    const base = sv.kind === 'tram' ? 180 : 300;
+    let minGap = Infinity;
+    for (let i = 1; i < departures.length; i++) minGap = Math.min(minGap, departures[i] - departures[i - 1]);
+    return Math.max(0, Math.min(base, minGap - 60));
+  }
+
   function expandDepartures(sv, reverse) {
     const explicit = reverse ? sv.departuresReturn : sv.departures;
     if (explicit) return explicit.map(parseTime);
@@ -156,23 +167,26 @@
     }
 
     // 時刻 t (0時からの秒, JST) に走行中の列車一覧
+    // 始発駅では発車の数分前から「発車待ち」として停車させる
     trainsAt(t, isVisible) {
       const trains = [];
       this.patterns.forEach((p, pi) => {
         if (isVisible && !isVisible(p.service)) return;
+        const wait = p.layover;
         // 日付をまたぐ列車のため前日分も確認する
         for (const base of [t, t + 86400]) {
           for (let di = 0; di < p.departures.length; di++) {
             const dep = p.departures[di];
             const elapsed = base - dep;
-            if (elapsed < 0 || elapsed > p.duration) continue;
-            const st = p.stateAt(elapsed);
+            if (elapsed < -wait || elapsed > p.duration) continue;
+            const st = p.stateAt(Math.max(0, elapsed));
             trains.push({
               id: `${p.service.id}:${pi}:${di}`,
               pattern: p,
               service: p.service,
               dep,
               elapsed,
+              waiting: elapsed < 0,
               ...st,
             });
           }

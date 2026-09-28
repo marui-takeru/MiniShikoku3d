@@ -214,6 +214,7 @@
       },
     });
     applyGroupFilter();
+    lastSunMinute = -1;
   }
 
   function empty() { return { type: 'FeatureCollection', features: [] }; }
@@ -277,11 +278,69 @@
     map.setTerrain(state.terrain ? { source: 'terrain', exaggeration: 1.4 } : null);
   }
 
+  // ---------------------------------------------------------------- 太陽と空
+  // シミュレーション時刻の太陽の位置 (松山付近) から光の向き・色・空の色を決める
+  const SUN_LAT = 33.84, SUN_LON = 132.77;
+
+  function sunPosition(sec) {
+    const now = new Date(Date.now() + 9 * 3600 * 1000);
+    const start = Date.UTC(now.getUTCFullYear(), 0, 0);
+    const day = Math.floor((now.getTime() - start) / 86400000);
+    const rad = Math.PI / 180;
+    const decl = 23.44 * Math.sin(2 * Math.PI * (284 + day) / 365) * rad;
+    const B = 2 * Math.PI * (day - 81) / 364;
+    const eot = 9.87 * Math.sin(2 * B) - 7.53 * Math.cos(B) - 1.5 * Math.sin(B); // 均時差 [分]
+    const solarMin = sec / 60 + 4 * (SUN_LON - 135) + eot;
+    const hour = (solarMin / 4 - 180) * rad;
+    const lat = SUN_LAT * rad;
+    const elev = Math.asin(Math.sin(lat) * Math.sin(decl) + Math.cos(lat) * Math.cos(decl) * Math.cos(hour));
+    const az = Math.atan2(Math.sin(hour), Math.cos(hour) * Math.sin(lat) - Math.tan(decl) * Math.cos(lat)) + Math.PI;
+    return { elevation: elev / rad, azimuth: az / rad };
+  }
+
+  function mix(a, b, f) {
+    const pa = a.match(/\w\w/g).map(x => parseInt(x, 16));
+    const pb = b.match(/\w\w/g).map(x => parseInt(x, 16));
+    return '#' + pa.map((v, i) => Math.round(v + (pb[i] - v) * f).toString(16).padStart(2, '0')).join('');
+  }
+
+  let lastSunMinute = -1;
+  function updateSun(sec, force) {
+    const minute = Math.floor(sec / 60);
+    if (!force && minute === lastSunMinute) return;
+    lastSunMinute = minute;
+    const { elevation, azimuth } = sunPosition(sec);
+    // day: 太陽高度 6° 以上で 1、-6° (市民薄明の終わり) 以下で 0
+    const day = Math.min(1, Math.max(0, (elevation + 6) / 12));
+    const low = Math.max(0, 1 - Math.abs(elevation) / 12); // 朝夕の赤み
+    const color = mix(mix('#b4c2ff', '#ffffff', day), '#ffb070', low * day);
+    map.setLight({
+      anchor: 'map',
+      position: [1.5, azimuth, Math.min(88, Math.max(10, 90 - Math.max(elevation, 0)))],
+      color,
+      intensity: 0.32 + 0.18 * day,
+    });
+    if (typeof map.setSky === 'function') {
+      map.setSky({
+        'sky-color': mix('#0b1026', '#6fa8e8', day),
+        'horizon-color': mix(mix('#1b2448', '#dce9f5', day), '#ffb27a', low * 0.8),
+        'fog-color': mix('#0e1424', '#e6edf3', day),
+        'sky-horizon-blend': 0.6,
+        'horizon-fog-blend': 0.5,
+        'fog-ground-blend': 0.5,
+        'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 12, 0],
+      });
+    }
+  }
+
   // ---------------------------------------------------------------- 列車の描画
   function sizeScale() {
     // 引いた視点でも列車が見えるよう、縮尺に応じて誇張する
     return Math.min(120, Math.max(2, Math.pow(2, 16.6 - map.getZoom())));
   }
+
+  const WINDOW_COLOR = '#22303c';
+  const ROOF_COLOR = '#9aa3ab';
 
   function trainFeatures(trains, scale) {
     const features = [];
@@ -294,9 +353,11 @@
       const lateral = (sv.kind === 'tram' ? 1.6 : 2.0) * scale;
       const h = sv.height * scale;
       const base = 0.4 * scale;
+      // 始発駅では編成全体がホームに収まるよう、先頭を 1 編成分だけ前に置く
+      const trainLen = Math.min(sv.cars * (L + gap) - gap, tr.pattern.length);
+      const head = Math.max(tr.dist, trainLen);
       for (let k = 0; k < sv.cars; k++) {
-        // 始発駅より後ろにはみ出す車両は描かない (車庫から出てくるように見える)
-        const dFront = tr.dist - k * (L + gap);
+        const dFront = head - k * (L + gap);
         if (dFront <= 0) break;
         const f = tr.pattern.pointAt(dFront);
         const b = tr.pattern.pointAt(Math.max(0, dFront - L));
@@ -314,11 +375,17 @@
           ring.splice(1, 0, nose);
         }
         ring.push(ring[0]);
-        features.push({
-          type: 'Feature',
-          properties: { id: tr.id, color: sv.color, h: base + h, b: base },
-          geometry: { type: 'Polygon', coordinates: [ring] },
-        });
+        const geometry = { type: 'Polygon', coordinates: [ring] };
+        // 車体・窓・屋根を積み重ねて電車らしく見せる
+        for (const [from, to, color] of [
+          [0, 0.5, sv.color], [0.5, 0.78, WINDOW_COLOR], [0.78, 0.92, sv.color], [0.92, 1, ROOF_COLOR],
+        ]) {
+          features.push({
+            type: 'Feature',
+            properties: { id: tr.id, color, b: base + h * from, h: base + h * to },
+            geometry,
+          });
+        }
       }
     }
     return { type: 'FeatureCollection', features };
@@ -333,6 +400,7 @@
     const t = simTime();
     document.getElementById('clock').textContent = formatTime(t);
     if (!map.getSource('trains')) return;
+    updateSun(((t % 86400) + 86400) % 86400);
     const trains = sim.trainsAt(((t % 86400) + 86400) % 86400, sv => state.groups[sv.group]);
     lastTrains = trains;
     map.getSource('trains').setData(trainFeatures(trains, sizeScale()));
@@ -377,8 +445,13 @@
     if (state.follow) map.jumpTo({ center: p.c });
     const path = tr.pattern.path;
     let status;
-    if (tr.stopped) {
-      status = `${path[tr.at][0]} に停車中`;
+    if (tr.waiting) {
+      status = `${path[0][0]} で発車待ち（${formatTime(tr.dep).slice(0, 5)} 発）`;
+    } else if (tr.stopped && tr.at === path.length - 1) {
+      status = `${path[tr.at][0]} に到着`;
+    } else if (tr.stopped) {
+      const seg = tr.pattern.segs[tr.seg];
+      status = `${path[tr.at][0]} に停車中（${formatTime(tr.dep + seg.t0).slice(0, 5)} 発）`;
     } else {
       const seg = tr.pattern.segs[tr.seg];
       status = `次は ${path[tr.next][0]}（${formatTime(tr.dep + seg.t1).slice(0, 5)} 着予定）`;
