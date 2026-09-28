@@ -43,11 +43,15 @@
   // ---------------------------------------------------------------- 状態
   const params = new URLSearchParams(location.search);
   const state = {
-    theme: params.get('theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'),
+    // auto: 太陽の高さに合わせて昼はライト、夜はダークの地図に切り替える
+    themeMode: ['light', 'dark'].includes(params.get('theme')) ? params.get('theme') : 'auto',
+    theme: 'light',
     buildings: true,
     terrain: params.has('terrain'),
     groups: Object.fromEntries(NET.groups.map(g => [g.id, true])),
     selected: null,
+    station: null,
+    night: 0,
     follow: false,
     clock: { base: jstNow(), realBase: performance.now(), speed: 1, paused: false },
   };
@@ -91,6 +95,16 @@
     customAttribution: '駅座標: <a href="https://ekidata.jp/" target="_blank">駅データ.jp</a> | 列車位置はダイヤパターンによる推計',
   }), 'bottom-right');
 
+  function fallbackStyle(theme) {
+    const style = JSON.parse(JSON.stringify(FALLBACK_STYLE));
+    if (theme === 'dark') {
+      style.layers[0].paint['background-color'] = '#10141b';
+      // 淡色地図の明るさを反転気味に落として夜の地図にする
+      style.layers[1].paint = { 'raster-brightness-min': 0.32, 'raster-brightness-max': 0, 'raster-saturation': -0.6, 'raster-contrast': 0.1 };
+    }
+    return style;
+  }
+
   async function loadStyle() {
     const url = STYLES[state.theme];
     try {
@@ -100,12 +114,18 @@
       map.setStyle(style, { diff: false });
     } catch (e) {
       console.warn('base map unavailable, using fallback', e);
-      map.setStyle(FALLBACK_STYLE, { diff: false });
+      map.setStyle(fallbackStyle(state.theme), { diff: false });
     }
   }
 
   map.on('style.load', addOverlays);
+  state.theme = resolveTheme(state.clock.base);
   loadStyle();
+
+  function resolveTheme(sec) {
+    if (state.themeMode !== 'auto') return state.themeMode;
+    return sunPosition(sec).elevation < -4 ? 'dark' : 'light';
+  }
 
   function firstSymbolLayer() {
     const layer = map.getStyle().layers.find(l => l.type === 'symbol');
@@ -213,6 +233,16 @@
         'fill-extrusion-vertical-gradient': true,
       },
     });
+    map.addSource('train-lights', { type: 'geojson', data: empty() });
+    map.addLayer({
+      id: 'train-lights', type: 'circle', source: 'train-lights',
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 2, 14, 3.5, 17, 7],
+        'circle-color': ['get', 'color'],
+        'circle-blur': 0.7,
+        'circle-opacity': 0,
+      },
+    });
     applyGroupFilter();
     lastSunMinute = -1;
   }
@@ -280,9 +310,8 @@
 
   // ---------------------------------------------------------------- 太陽と空
   // シミュレーション時刻の太陽の位置 (松山付近) から光の向き・色・空の色を決める
-  const SUN_LAT = 33.84, SUN_LON = 132.77;
-
   function sunPosition(sec) {
+    const SUN_LAT = 33.84, SUN_LON = 132.77;
     const now = new Date(Date.now() + 9 * 3600 * 1000);
     const start = Date.UTC(now.getUTCFullYear(), 0, 0);
     const day = Math.floor((now.getTime() - start) / 86400000);
@@ -313,6 +342,15 @@
     // day: 太陽高度 6° 以上で 1、-6° (市民薄明の終わり) 以下で 0
     const day = Math.min(1, Math.max(0, (elevation + 6) / 12));
     const low = Math.max(0, 1 - Math.abs(elevation) / 12); // 朝夕の赤み
+    state.night = 1 - day;
+    const theme = resolveTheme(sec);
+    if (theme !== state.theme) {
+      state.theme = theme;
+      renderToggles();
+      loadStyle();
+      return;
+    }
+    if (map.getLayer('train-lights')) map.setPaintProperty('train-lights', 'circle-opacity', 0.95 * state.night);
     const color = mix(mix('#b4c2ff', '#ffffff', day), '#ffb070', low * day);
     map.setLight({
       anchor: 'map',
@@ -344,6 +382,7 @@
 
   function trainFeatures(trains, scale) {
     const features = [];
+    const lights = [];
     for (const tr of trains) {
       const sv = tr.service;
       const L = sv.carLength * scale;
@@ -375,6 +414,9 @@
           ring.splice(1, 0, nose);
         }
         ring.push(ring[0]);
+        // 夜間の前照灯 (先頭) と尾灯 (最後尾)
+        if (k === 0) lights.push(light(offset(fc, brg, Math.min(L * 0.15, 3 * scale)), '#fff6d8'));
+        if (k === sv.cars - 1 || head - (k + 1) * (L + gap) <= 0) lights.push(light(bc, '#ff3b30'));
         const geometry = { type: 'Polygon', coordinates: [ring] };
         // 車体・窓・屋根を積み重ねて電車らしく見せる
         for (const [from, to, color] of [
@@ -388,7 +430,11 @@
         }
       }
     }
-    return { type: 'FeatureCollection', features };
+    return { trains: { type: 'FeatureCollection', features }, lights: { type: 'FeatureCollection', features: lights } };
+  }
+
+  function light(c, color) {
+    return { type: 'Feature', properties: { color }, geometry: { type: 'Point', coordinates: c } };
   }
 
   let lastTrains = [];
@@ -403,10 +449,17 @@
     updateSun(((t % 86400) + 86400) % 86400);
     const trains = sim.trainsAt(((t % 86400) + 86400) % 86400, sv => state.groups[sv.group]);
     lastTrains = trains;
-    map.getSource('trains').setData(trainFeatures(trains, sizeScale()));
+    const drawn = trainFeatures(trains, sizeScale());
+    map.getSource('trains').setData(drawn.trains);
+    map.getSource('train-lights').setData(state.night > 0.05 ? drawn.lights : empty());
     document.getElementById('train-count').textContent = String(trains.length);
     updateSelection(trains, t);
+    if (state.station && now - lastBoard > 1000) {
+      lastBoard = now;
+      renderStation();
+    }
   }
+  let lastBoard = 0;
   requestAnimationFrame(frame);
 
   // ---------------------------------------------------------------- 列車の選択
@@ -414,17 +467,28 @@
     const id = e.features[0].properties.id;
     state.selected = id;
     state.follow = false;
+    state.station = null;
     e.preventDefault();
     renderInfo();
+    renderStation();
   });
+  for (const layer of ['stations-rail', 'stations-tram']) {
+    map.on('click', layer, e => {
+      if (e.defaultPrevented) return;
+      e.preventDefault();
+      const f = e.features[0];
+      openStation(f.properties.name, f.geometry.coordinates);
+    });
+    map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
+  }
   map.on('click', e => {
     if (e.defaultPrevented) return;
-    const hits = map.getLayer('trains') ? map.queryRenderedFeatures(e.point, { layers: ['trains'] }) : [];
-    if (!hits.length) {
-      state.selected = null;
-      state.follow = false;
-      renderInfo();
-    }
+    state.selected = null;
+    state.follow = false;
+    state.station = null;
+    renderInfo();
+    renderStation();
   });
   map.on('mouseenter', 'trains', () => { map.getCanvas().style.cursor = 'pointer'; });
   map.on('mouseleave', 'trains', () => { map.getCanvas().style.cursor = ''; });
@@ -480,6 +544,57 @@
     followBtn.setAttribute('aria-pressed', String(state.follow));
     box.hidden = false;
   }
+
+  // ---------------------------------------------------------------- 駅の発車案内
+  function shortName(sv) {
+    const m = sv.name.match(/^(\d+系統)/);
+    return m ? m[1] : sv.name;
+  }
+
+  function destinationOf(p) {
+    return p.service.loop ? p.service.name.replace(/^\d+系統\s*/, '') : `${p.destination} 行`;
+  }
+
+  function openStation(name, c) {
+    state.station = { name, c };
+    state.selected = null;
+    state.follow = false;
+    renderInfo();
+    renderStation();
+  }
+
+  function renderStation() {
+    const box = document.getElementById('station');
+    if (!state.station) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    document.getElementById('station-name').textContent = state.station.name;
+    const t = ((simTime() % 86400) + 86400) % 86400;
+    const deps = sim.departuresAt(state.station.name, state.station.c, t, {
+      limit: 8, isVisible: sv => state.groups[sv.group],
+    });
+    const list = document.getElementById('station-deps');
+    list.replaceChildren(...deps.map(d => {
+      const li = document.createElement('li');
+      const min = Math.floor(d.wait / 60);
+      li.innerHTML = `<span class="dep-time">${formatTime(d.time).slice(0, 5)}</span>
+        <i class="dep-swatch"></i>
+        <span class="dep-name"></span>
+        <span class="dep-wait">${min === 0 ? 'まもなく' : `${min}分後`}</span>`;
+      li.querySelector('.dep-swatch').style.background = d.service.color;
+      li.querySelector('.dep-name').textContent =
+        `${shortName(d.service)} ${destinationOf(d.pattern)}${d.first ? '（始発）' : ''}`;
+      return li;
+    }));
+    document.getElementById('station-empty').hidden = deps.length > 0;
+  }
+
+  document.getElementById('station-close').addEventListener('click', () => {
+    state.station = null;
+    renderStation();
+  });
 
   document.getElementById('info-follow').addEventListener('click', () => {
     state.follow = !state.follow;
@@ -541,6 +656,38 @@
     legend.appendChild(label);
   }
 
+  // 駅の検索: 同名で場所の違う駅には路線名を添える
+  const stationIndex = (() => {
+    const byName = new Map();
+    for (const l of NET.lines) {
+      for (const [name, c] of l.stations) {
+        const list = byName.get(name) || [];
+        if (!list.some(x => Sim.haversine(x.c, c) < 400)) list.push({ name, c, line: l.name, kind: l.kind });
+        byName.set(name, list);
+      }
+    }
+    const entries = [];
+    for (const list of byName.values()) {
+      for (const st of list) entries.push({ ...st, label: list.length > 1 ? `${st.name}（${st.line}）` : st.name });
+    }
+    return entries.sort((a, b) => a.label.localeCompare(b.label, 'ja'));
+  })();
+  const datalist = document.getElementById('station-list');
+  for (const st of stationIndex) {
+    const o = document.createElement('option');
+    o.value = st.label;
+    datalist.appendChild(o);
+  }
+  document.getElementById('search').addEventListener('change', e => {
+    const st = stationIndex.find(x => x.label === e.target.value.trim()) ||
+      stationIndex.find(x => x.name === e.target.value.trim());
+    if (!st) return;
+    state.follow = false;
+    map.flyTo({ center: st.c, zoom: st.kind === 'tram' ? 16.3 : 15.3, pitch: 60, duration: 2000, essential: true });
+    openStation(st.name, st.c);
+    e.target.blur();
+  });
+
   document.querySelectorAll('[data-view]').forEach(b => {
     b.addEventListener('click', () => {
       state.follow = false;
@@ -553,14 +700,19 @@
   const terrainBtn = document.getElementById('terrain');
   function renderToggles() {
     document.documentElement.dataset.theme = state.theme;
-    themeBtn.textContent = state.theme === 'dark' ? '☾ ダーク' : '☀ ライト';
+    themeBtn.textContent = { auto: '地図: 自動（昼夜）', light: '地図: ライト', dark: '地図: ダーク' }[state.themeMode];
     buildingsBtn.setAttribute('aria-pressed', String(state.buildings));
     terrainBtn.setAttribute('aria-pressed', String(state.terrain));
   }
   themeBtn.addEventListener('click', () => {
-    state.theme = state.theme === 'dark' ? 'light' : 'dark';
+    const order = ['auto', 'light', 'dark'];
+    state.themeMode = order[(order.indexOf(state.themeMode) + 1) % order.length];
+    const theme = resolveTheme(simTime());
+    if (theme !== state.theme) {
+      state.theme = theme;
+      loadStyle();
+    }
     renderToggles();
-    loadStyle();
   });
   buildingsBtn.addEventListener('click', () => {
     state.buildings = !state.buildings;

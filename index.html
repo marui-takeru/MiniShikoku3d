@@ -35,6 +35,12 @@
       </section>
 
       <section>
+        <h2>駅をさがす</h2>
+        <input id="search" type="search" list="station-list" placeholder="駅名を入力（例: 道後温泉）" autocomplete="off">
+        <datalist id="station-list"></datalist>
+      </section>
+
+      <section>
         <h2>エリア</h2>
         <div class="row wrap">
           <button data-view="matsuyama">松山 中心部</button>
@@ -79,6 +85,19 @@
     <div id="info-status"></div>
     <div id="info-detail"></div>
     <button id="info-follow" aria-pressed="false">この列車を追跡</button>
+  </div>
+
+  <div id="station" class="card" hidden>
+    <div class="info-head">
+      <div>
+        <div class="card-kicker">発車案内</div>
+        <div id="station-name"></div>
+      </div>
+      <button id="station-close" class="icon" aria-label="閉じる">×</button>
+    </div>
+    <ol id="station-deps"></ol>
+    <p id="station-empty" class="note" hidden>3 時間以内に発車する列車はありません。</p>
+    <p class="note">発車時刻は運行パターンからの推計です。</p>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>

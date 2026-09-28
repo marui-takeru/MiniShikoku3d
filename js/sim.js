@@ -72,6 +72,8 @@
       }
       this.segs = segs;
       this.duration = t;
+      // 停車駅ごとの発車時刻 (始発からの秒)。終着駅は発車しないので含めない
+      this.stopDepartures = segs.map(sg => ({ index: sg.from, t: sg.t0 }));
     }
 
     // 発車後 elapsed 秒の状態
@@ -164,6 +166,26 @@
           if (sv.both) this.patterns.push(new Pattern(sv, rev, expandDepartures(sv, true), 'up'));
         }
       }
+    }
+
+    // 駅の発車案内: 時刻 t 以降に name 駅 (座標 c の近く) を発車する列車
+    departuresAt(name, c, t, { limit = 10, horizon = 3 * 3600, isVisible } = {}) {
+      const out = [];
+      for (const p of this.patterns) {
+        if (isVisible && !isVisible(p.service)) continue;
+        for (const sd of p.stopDepartures) {
+          const st = p.path[sd.index];
+          if (st[0] !== name || haversine(st[1], c) > 400) continue;
+          for (const dep of p.departures) {
+            const time = dep + sd.t;
+            const wait = ((time - t) % 86400 + 86400) % 86400;
+            if (wait > horizon) continue;
+            out.push({ pattern: p, service: p.service, time: time % 86400, wait, first: sd.index === 0 });
+          }
+        }
+      }
+      out.sort((a, b) => a.wait - b.wait);
+      return out.slice(0, limit);
     }
 
     // 時刻 t (0時からの秒, JST) に走行中の列車一覧
