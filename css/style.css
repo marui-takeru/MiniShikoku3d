@@ -8,6 +8,8 @@
   --btn-on-fg: #fff;
   --accent: #f08300;
 }
+:root { --series-1: #2a78d6; }
+:root[data-theme="dark"] { --series-1: #3987e5; }
 :root[data-theme="dark"] {
   --bg: rgba(18, 22, 30, 0.9);
   --fg: #e8ecf1;
@@ -144,6 +146,33 @@ section { border-top: 1px solid var(--line); padding-top: 2px; }
 .dep-swatch { width: 6px; height: 18px; border-radius: 2px; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.2); }
 .dep-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dep-wait { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+#daychart { position: relative; margin-top: 4px; }
+#daychart-svg { width: 100%; height: auto; display: block; cursor: crosshair; touch-action: none; }
+#daychart-svg .area { fill: var(--series-1); opacity: 0.14; }
+#daychart-svg .line { fill: none; stroke: var(--series-1); stroke-width: 2; stroke-linejoin: round; }
+#daychart-svg .axis { stroke: var(--line); stroke-width: 1; }
+#daychart-svg .tick { fill: var(--muted); font-size: 9px; }
+#daychart-svg .now { stroke: var(--fg); stroke-width: 1; stroke-dasharray: 2 2; opacity: 0.6; }
+#daychart-svg .hair { stroke: var(--fg); stroke-width: 1; }
+#daychart-svg .dot { fill: var(--series-1); stroke: var(--bg); stroke-width: 2; }
+#daychart-tip {
+  position: absolute;
+  top: -6px;
+  transform: translate(-50%, -100%);
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 11px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+#daychart-tip b { font-variant-numeric: tabular-nums; }
+.daychart-table { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.daychart-table summary { cursor: pointer; }
+.daychart-table table { width: 100%; border-collapse: collapse; margin-top: 4px; font-variant-numeric: tabular-nums; color: var(--fg); }
+.daychart-table th, .daychart-table td { text-align: right; padding: 2px 6px; border-top: 1px solid var(--line); }
 
 #station-reach { margin-top: 10px; width: 100%; }
 #reach-legend {

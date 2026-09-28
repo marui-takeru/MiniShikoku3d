@@ -59,6 +59,18 @@
       </section>
 
       <section>
+        <h2>1日の運行本数（表示中の路線）</h2>
+        <div id="daychart" class="viz-root">
+          <svg id="daychart-svg" viewBox="0 0 272 84" role="img" aria-label="時刻ごとの運行中の列車本数"></svg>
+          <div id="daychart-tip" hidden></div>
+        </div>
+        <details class="daychart-table">
+          <summary>表で見る</summary>
+          <table id="daychart-table"><thead><tr><th>時刻</th><th>本数</th></tr></thead><tbody></tbody></table>
+        </details>
+      </section>
+
+      <section>
         <h2>表示</h2>
         <div class="row wrap">
           <button id="theme"></button>

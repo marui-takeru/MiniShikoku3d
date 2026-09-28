@@ -484,9 +484,10 @@
     map.getSource('train-lights').setData(state.night > 0.05 ? drawn.lights : empty());
     document.getElementById('train-count').textContent = String(trains.length);
     updateSelection(trains, t);
-    if (state.station && now - lastBoard > 1000) {
+    if (now - lastBoard > 1000) {
       lastBoard = now;
-      renderStation();
+      if (state.station) renderStation();
+      renderChartNow();
     }
   }
   let lastBoard = 0;
@@ -805,6 +806,7 @@
     label.querySelector('input').addEventListener('change', e => {
       state.groups[g.id] = e.target.checked;
       applyGroupFilter();
+      renderDayChart();
     });
     legend.appendChild(label);
   }
@@ -879,6 +881,109 @@
     if (state.terrain && map.getPitch() < 50) map.easeTo({ pitch: 60 });
   });
   renderToggles();
+
+  // ---------------------------------------------------------------- 1日の運行本数
+  // 10 分ごとに運行中の列車を数えた折れ線。ホバーで値、クリックでその時刻へ移動
+  const CHART = { w: 272, h: 84, left: 4, right: 4, top: 8, bottom: 16, step: 600 };
+  let dayCounts = null;
+  let dayKey = '';
+
+  function computeDayCounts() {
+    const key = NET.groups.map(g => (state.groups[g.id] ? 1 : 0)).join('');
+    if (key === dayKey && dayCounts) return dayCounts;
+    dayKey = key;
+    dayCounts = [];
+    for (let t = 0; t <= 86400; t += CHART.step) {
+      dayCounts.push(sim.trainsAt(t % 86400, sv => state.groups[sv.group]).length);
+    }
+    return dayCounts;
+  }
+
+  const chartX = t => CHART.left + (t / 86400) * (CHART.w - CHART.left - CHART.right);
+  function chartY(v, max) {
+    return CHART.h - CHART.bottom - (v / max) * (CHART.h - CHART.top - CHART.bottom);
+  }
+
+  function svgEl(tag, attrs) {
+    const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (const k in attrs) el.setAttribute(k, attrs[k]);
+    return el;
+  }
+
+  function renderDayChart() {
+    const counts = computeDayCounts();
+    const max = Math.max(10, ...counts) * 1.1;
+    const svg = document.getElementById('daychart-svg');
+    const pts = counts.map((v, i) => `${chartX(i * CHART.step).toFixed(1)},${chartY(v, max).toFixed(1)}`);
+    const base = chartY(0, max);
+    const nodes = [
+      svgEl('path', { class: 'area', d: `M${chartX(0)},${base}L${pts.join('L')}L${chartX(86400)},${base}Z` }),
+      svgEl('path', { class: 'line', d: `M${pts.join('L')}` }),
+      svgEl('line', { class: 'axis', x1: chartX(0), x2: chartX(86400), y1: base, y2: base }),
+    ];
+    for (const h of [0, 6, 12, 18, 24]) {
+      const t = svgEl('text', { class: 'tick', x: chartX(h * 3600), y: CHART.h - 3, 'text-anchor': h === 0 ? 'start' : h === 24 ? 'end' : 'middle' });
+      t.textContent = `${h}時`;
+      nodes.push(t);
+    }
+    nodes.push(svgEl('line', { class: 'now', id: 'daychart-now', y1: CHART.top - 4, y2: base }));
+    nodes.push(svgEl('line', { class: 'hair', id: 'daychart-hair', y1: CHART.top - 4, y2: base, visibility: 'hidden' }));
+    nodes.push(svgEl('circle', { class: 'dot', id: 'daychart-dot', r: 4, visibility: 'hidden' }));
+    svg.replaceChildren(...nodes);
+    const peak = Math.max(...counts);
+    svg.setAttribute('aria-label', `時刻ごとの運行中の列車本数。最大 ${peak} 本（${formatTime(counts.indexOf(peak) * CHART.step).slice(0, 5)} 頃）`);
+    // 表で見る (1 時間ごと)
+    const tbody = document.querySelector('#daychart-table tbody');
+    tbody.replaceChildren(...Array.from({ length: 24 }, (_, h) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td></td><td></td>';
+      tr.children[0].textContent = `${String(h).padStart(2, '0')}:00`;
+      tr.children[1].textContent = `${counts[h * 6]} 本`;
+      return tr;
+    }));
+    renderChartNow();
+  }
+
+  function renderChartNow() {
+    const line = document.getElementById('daychart-now');
+    if (!line) return;
+    const t = ((simTime() % 86400) + 86400) % 86400;
+    line.setAttribute('x1', chartX(t));
+    line.setAttribute('x2', chartX(t));
+  }
+
+  (function bindDayChart() {
+    const svg = document.getElementById('daychart-svg');
+    const tip = document.getElementById('daychart-tip');
+    const toTime = e => {
+      const r = svg.getBoundingClientRect();
+      const x = (e.clientX - r.left) / r.width * CHART.w;
+      const frac = (x - CHART.left) / (CHART.w - CHART.left - CHART.right);
+      return Math.min(86400 - CHART.step, Math.max(0, Math.round(frac * 86400 / CHART.step) * CHART.step));
+    };
+    svg.addEventListener('pointermove', e => {
+      const t = toTime(e);
+      const counts = computeDayCounts();
+      const max = Math.max(10, ...counts) * 1.1;
+      const v = counts[t / CHART.step];
+      const hair = document.getElementById('daychart-hair');
+      const dot = document.getElementById('daychart-dot');
+      hair.setAttribute('x1', chartX(t)); hair.setAttribute('x2', chartX(t)); hair.setAttribute('visibility', 'visible');
+      dot.setAttribute('cx', chartX(t)); dot.setAttribute('cy', chartY(v, max)); dot.setAttribute('visibility', 'visible');
+      tip.hidden = false;
+      tip.innerHTML = '<b></b> 本 · <span></span>';
+      tip.querySelector('b').textContent = String(v);
+      tip.querySelector('span').textContent = formatTime(t).slice(0, 5);
+      tip.style.left = `${(chartX(t) / CHART.w) * 100}%`;
+    });
+    svg.addEventListener('pointerleave', () => {
+      tip.hidden = true;
+      document.getElementById('daychart-hair').setAttribute('visibility', 'hidden');
+      document.getElementById('daychart-dot').setAttribute('visibility', 'hidden');
+    });
+    svg.addEventListener('click', e => setClock(toTime(e), state.clock.speed));
+  })();
+  renderDayChart();
 
   // ---------------------------------------------------------------- 撮影モード・共有
   // 撮影モード: パネル類を隠し、カメラをゆっくり回転させる (動画・GIF 撮影用)
