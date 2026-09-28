@@ -532,6 +532,8 @@
       glow.setData(empty());
       if (state.selected) {
         document.getElementById('info-status').textContent = '運行を終了しました';
+        document.getElementById('info-stops').replaceChildren();
+        lastUpcomingKey = '';
       }
       return;
     }
@@ -1005,8 +1007,31 @@
   }
   document.getElementById('cinema').addEventListener('click', () => setCinema(true));
   document.getElementById('cinema-exit').addEventListener('click', () => setCinema(false));
+  // キーボード操作: Space 一時停止 / 1-4 倍速 / N 現在時刻 / C 撮影モード / F 追跡 / Esc 閉じる
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && document.body.classList.contains('cinema')) setCinema(false);
+    if (e.target.closest('input, textarea, select') || e.metaKey || e.ctrlKey || e.altKey) return;
+    const cinema = document.body.classList.contains('cinema');
+    if (e.key === 'Escape') {
+      if (cinema) setCinema(false);
+      else {
+        state.selected = null;
+        state.station = null;
+        state.follow = false;
+        renderInfo();
+        renderStation();
+      }
+    } else if (e.key === ' ') {
+      e.preventDefault();
+      setClock(simTime(), state.clock.speed, !state.clock.paused);
+    } else if (['1', '2', '3', '4'].includes(e.key)) {
+      setClock(simTime(), SPEEDS[Number(e.key) - 1], false);
+    } else if (e.key === 'n' || e.key === 'N') {
+      setClock(jstNow(), 1, false);
+    } else if (e.key === 'c' || e.key === 'C') {
+      setCinema(!cinema);
+    } else if ((e.key === 'f' || e.key === 'F') && state.selected) {
+      document.getElementById('info-follow').click();
+    }
   });
   if (params.has('cinema')) setCinema(true);
 
