@@ -35,7 +35,9 @@
 
   // 1 方向分の運行パターン (経路 + 時刻の骨組み)
   class Pattern {
-    constructor(service, path, departures, dirLabel) {
+    // trips を渡すと、列車ごとの実際の発着時刻 (GTFS など) を使う。
+    // trips[i].t = 停車駅ごとの [到着, 発車] (始発駅発車からの秒)
+    constructor(service, path, departures, dirLabel, trips) {
       this.service = service;
       this.path = path; // [[name, [lon,lat], stop], ...]
       this.departures = departures; // 始発駅発車時刻 [秒]
@@ -47,6 +49,7 @@
       }
       this.length = this.cum[this.cum.length - 1];
       this._buildTimeline();
+      if (trips) this._useTripTimes(trips);
       this.layover = layoverFor(service, departures);
       // 終着駅に着いた列車も少しの間ホームに停車させる
       this.linger = service.loop ? 0 : (service.kind === 'tram' ? 60 : 120);
@@ -74,13 +77,28 @@
       }
       this.segs = segs;
       this.duration = t;
-      // 停車駅ごとの発車時刻 (始発からの秒)。終着駅は発車しないので含めない
-      this.stopDepartures = segs.map(sg => ({ index: sg.from, t: sg.t0 }));
+    }
+
+    _useTripTimes(trips) {
+      const stops = this.path.map((p, i) => (p[2] ? i : -1)).filter(i => i >= 0);
+      this.tripSegs = trips.map(tr => stops.slice(0, -1).map((from, k) => ({
+        from, to: stops[k + 1], d0: this.cum[from], d1: this.cum[stops[k + 1]],
+        t0: tr.t[k][1], t1: Math.max(tr.t[k + 1][0], tr.t[k][1] + 1),
+      })));
+    }
+
+    // 列車 (departures の添字) ごとの区間時刻と所要時間
+    segsOf(di) {
+      return this.tripSegs ? this.tripSegs[di] : this.segs;
+    }
+
+    durationOf(di) {
+      const segs = this.segsOf(di);
+      return segs[segs.length - 1].t1;
     }
 
     // 発車後 elapsed 秒の状態
-    stateAt(elapsed) {
-      const segs = this.segs;
+    stateAt(elapsed, segs = this.segs) {
       for (let k = 0; k < segs.length; k++) {
         const s = segs[k];
         if (elapsed < s.t0) {
@@ -159,6 +177,10 @@
       this.network = network;
       this.patterns = [];
       for (const sv of network.services) {
+        if (sv.trips) {
+          this.patterns.push(new Pattern(sv, sv.path, sv.trips.map(tr => tr.dep), 'trips', sv.trips));
+          continue;
+        }
         const fwd = sv.path;
         const rev = [...sv.path].reverse();
         if (sv.loop) {
@@ -210,12 +232,12 @@
       let trip = 0;
       for (const p of this.patterns) {
         if (isVisible && !isVisible(p.service)) continue;
-        for (const dep of p.departures) {
-          for (const sg of p.segs) {
+        p.departures.forEach((dep, di) => {
+          for (const sg of p.segsOf(di)) {
             items.push([dep + sg.t0, dep + sg.t1, p.stopIds[sg.from], p.stopIds[sg.to], trip, p]);
           }
           trip++;
-        }
+        });
       }
       items.sort((a, b) => a[0] - b[0]);
       this._conn = { key, items, stations: list.length };
@@ -265,15 +287,16 @@
       const out = [];
       for (const p of this.patterns) {
         if (isVisible && !isVisible(p.service)) continue;
-        for (const sd of p.stopDepartures) {
-          const st = p.path[sd.index];
+        for (let k = 0; k < p.segs.length; k++) {
+          const from = p.segs[k].from;
+          const st = p.path[from];
           if (st[0] !== name || haversine(st[1], c) > 400) continue;
-          for (const dep of p.departures) {
-            const time = dep + sd.t;
+          p.departures.forEach((dep, di) => {
+            const time = dep + p.segsOf(di)[k].t0;
             const wait = ((time - t) % 86400 + 86400) % 86400;
-            if (wait > horizon) continue;
-            out.push({ pattern: p, service: p.service, time: time % 86400, wait, first: sd.index === 0 });
-          }
+            if (wait > horizon) return;
+            out.push({ pattern: p, service: p.service, time: time % 86400, wait, first: from === 0 });
+          });
         }
       }
       out.sort((a, b) => a.wait - b.wait);
@@ -292,8 +315,10 @@
           for (let di = 0; di < p.departures.length; di++) {
             const dep = p.departures[di];
             const elapsed = base - dep;
-            if (elapsed < -wait || elapsed > p.duration + p.linger) continue;
-            const st = p.stateAt(Math.max(0, elapsed));
+            if (elapsed < -wait) continue;
+            const segs = p.segsOf(di);
+            if (elapsed > segs[segs.length - 1].t1 + p.linger) continue;
+            const st = p.stateAt(Math.max(0, elapsed), segs);
             trains.push({
               id: `${p.service.id}:${pi}:${di}`,
               pattern: p,
@@ -301,6 +326,7 @@
               dep,
               elapsed,
               waiting: elapsed < 0,
+              segs,
               ...st,
             });
           }

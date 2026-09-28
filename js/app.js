@@ -545,10 +545,10 @@
     } else if (tr.stopped && tr.at === path.length - 1) {
       status = `${path[tr.at][0]} に到着しました`;
     } else if (tr.stopped) {
-      const seg = tr.pattern.segs[tr.seg];
+      const seg = tr.segs[tr.seg];
       status = `${path[tr.at][0]} に停車中（${formatTime(tr.dep + seg.t0).slice(0, 5)} 発）`;
     } else {
-      const seg = tr.pattern.segs[tr.seg];
+      const seg = tr.segs[tr.seg];
       status = `次は ${path[tr.next][0]}（${formatTime(tr.dep + seg.t1).slice(0, 5)} 着予定）`;
     }
     document.getElementById('info-status').textContent = status;
@@ -559,7 +559,7 @@
   let lastUpcomingKey = '';
   function renderUpcoming(tr) {
     const p = tr.pattern;
-    const rows = p.segs
+    const rows = tr.segs
       .filter(sg => sg.t1 > tr.elapsed)
       .map(sg => [p.path[sg.to][0], formatTime(tr.dep + sg.t1).slice(0, 5)]);
     const shown = rows.length > 7 ? [...rows.slice(0, 6), null, rows[rows.length - 1]] : rows;
