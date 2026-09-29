@@ -50,9 +50,9 @@
       this.length = this.cum[this.cum.length - 1];
       this._buildTimeline();
       if (trips) this._useTripTimes(trips);
-      this.layover = layoverFor(service, departures);
-      // 終着駅に着いた列車も少しの間ホームに停車させる
-      this.linger = service.loop ? 0 : (service.kind === 'tram' ? 60 : 120);
+      this.layover = service.kind === 'plane' ? 0 : layoverFor(service, departures);
+      // 終着駅に着いた列車も少しの間ホームに停車させる (飛行機は滑走路で止まったら消す)
+      this.linger = service.loop || service.kind === 'plane' ? 0 : (service.kind === 'tram' ? 60 : 120);
       const lastStop = [...path].reverse().find(p => p[2]);
       this.destination = service.loop ? null : lastStop[0];
     }
@@ -158,13 +158,19 @@
     return Math.max(0, Math.min(base, minGap - 60));
   }
 
-  function expandDepartures(sv, reverse) {
+  // 運転間隔の帯 (bands) から発車時刻を作る。
+  // bandsByDay があれば平日 / 土休日で使い分け、bandsReturn* があれば上りは別の帯を使う
+  function expandDepartures(sv, reverse, dayType = 'weekday') {
     const explicit = reverse ? sv.departuresReturn : sv.departures;
     if (explicit) return explicit.map(parseTime);
+    const byDay = reverse && sv.bandsByDayReturn ? sv.bandsByDayReturn : sv.bandsByDay;
+    const own = byDay ? (byDay[dayType] || byDay.weekday) : null;
+    const bands = own || sv.bands;
     const out = [];
     // 上り列車は下りから 4 分ずらして、同じ区間ですれ違う位置がばらけるようにする
-    const off = (sv.offset || 0) * 60 + (reverse ? 240 : 0);
-    for (const [a, b, headway] of sv.bands) {
+    // (上り専用の帯があるときは、その時刻をそのまま使う)
+    const off = (sv.offset || 0) * 60 + (reverse && !sv.bandsByDayReturn ? 240 : 0);
+    for (const [a, b, headway] of bands) {
       const start = parseTime(a) + off;
       const end = parseTime(b);
       for (let t = start; t < end; t += headway * 60) out.push(t);
@@ -206,10 +212,10 @@
         const fwd = sv.path;
         const rev = [...sv.path].reverse();
         if (sv.loop) {
-          this.patterns.push(new Pattern(sv, fwd, expandDepartures(sv, false), sv.name));
+          this.patterns.push(new Pattern(sv, fwd, expandDepartures(sv, false, this.dayType), sv.name));
         } else {
-          this.patterns.push(new Pattern(sv, fwd, expandDepartures(sv, false), 'down'));
-          if (sv.both) this.patterns.push(new Pattern(sv, rev, expandDepartures(sv, true), 'up'));
+          this.patterns.push(new Pattern(sv, fwd, expandDepartures(sv, false, this.dayType), 'down'));
+          if (sv.both) this.patterns.push(new Pattern(sv, rev, expandDepartures(sv, true, this.dayType), 'up'));
         }
       }
     }
@@ -227,8 +233,9 @@
         }
         return st.id;
       };
+      // 航空便は四国の外と行き来するだけなので、乗り換えの計算には入れない
       for (const p of this.patterns) {
-        p.stopIds = p.path.map(q => (q[2] ? idOf(q[0], q[1]) : -1));
+        p.stopIds = p.service.kind === 'plane' ? p.path.map(() => -1) : p.path.map(q => (q[2] ? idOf(q[0], q[1]) : -1));
       }
       // 徒歩連絡: 別の駅でも 500m 以内なら歩いて乗り換えられる (迂回率 1.3, 時速 4.3km, +1分)
       const walks = list.map(() => []);
@@ -254,6 +261,7 @@
       let trip = 0;
       for (const p of this.patterns) {
         if (isVisible && !isVisible(p.service)) continue;
+        if (p.service.kind === 'plane') continue;
         p.departures.forEach((dep, di) => {
           for (const sg of p.segsOf(di)) {
             items.push([dep + sg.t0, dep + sg.t1, p.stopIds[sg.from], p.stopIds[sg.to], trip, p]);
@@ -305,14 +313,14 @@
     }
 
     // 駅の発車案内: 時刻 t 以降に name 駅 (座標 c の近く) を発車する列車
-    departuresAt(name, c, t, { limit = 10, horizon = 3 * 3600, isVisible } = {}) {
+    departuresAt(name, c, t, { limit = 10, horizon = 3 * 3600, isVisible, radius = 400 } = {}) {
       const out = [];
       for (const p of this.patterns) {
         if (isVisible && !isVisible(p.service)) continue;
         for (let k = 0; k < p.segs.length; k++) {
           const from = p.segs[k].from;
           const st = p.path[from];
-          if (st[0] !== name || haversine(st[1], c) > 400) continue;
+          if (st[0] !== name || haversine(st[1], c) > radius) continue;
           p.departures.forEach((dep, di) => {
             const time = dep + p.segsOf(di)[k].t0;
             const wait = ((time - t) % 86400 + 86400) % 86400;
@@ -320,6 +328,24 @@
             out.push({ pattern: p, service: p.service, time: time % 86400, wait, first: from === 0 });
           });
         }
+      }
+      out.sort((a, b) => a.wait - b.wait);
+      return out.slice(0, limit);
+    }
+
+    // 到着案内: 時刻 t 以降に name 駅 (座標 c の近く) が終点の便の到着時刻
+    arrivalsAt(name, c, t, { limit = 10, horizon = 3 * 3600, isVisible, radius = 400 } = {}) {
+      const out = [];
+      for (const p of this.patterns) {
+        if (isVisible && !isVisible(p.service)) continue;
+        const last = p.path[p.path.length - 1];
+        if (last[0] !== name || haversine(last[1], c) > radius) continue;
+        p.departures.forEach((dep, di) => {
+          const segs = p.segsOf(di);
+          const time = dep + segs[segs.length - 1].t1;
+          const wait = ((time - t) % 86400 + 86400) % 86400;
+          if (wait <= horizon) out.push({ pattern: p, service: p.service, time: time % 86400, wait });
+        });
       }
       out.sort((a, b) => a.wait - b.wait);
       return out.slice(0, limit);

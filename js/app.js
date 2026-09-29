@@ -42,6 +42,7 @@
     kochi: { center: [133.535, 33.562], zoom: 13.4, pitch: 55, bearing: 0 },
     tokushima: { center: [134.551, 34.074], zoom: 13.2, pitch: 55, bearing: 0 },
     shikoku: { center: [133.45, 33.72], zoom: 7.7, pitch: 35, bearing: 0 },
+    setouchi: { center: [132.95, 33.95], zoom: 8.6, pitch: 45, bearing: 0 },
   };
 
   // ---------------------------------------------------------------- 状態
@@ -56,6 +57,7 @@
     selected: null,
     station: null,
     reach: null,
+    airport: null,
     night: 0,
     follow: false,
     clock: { base: jstNow(), realBase: performance.now(), speed: 1, paused: false },
@@ -99,12 +101,14 @@
     compact: true,
     customAttribution: [
       ...(NET.trackSource === '国土数値情報（鉄道データ）'
-        ? ['駅・線路: 「<a href="https://nlftp.mlit.go.jp/ksj/" target="_blank">国土数値情報（鉄道データ）</a>」（国土交通省）を加工して作成']
+        ? ['駅・線路・空港: 「<a href="https://nlftp.mlit.go.jp/ksj/" target="_blank">国土数値情報</a>」（国土交通省）を加工して作成']
         : NET.trackSource ? [`線路: ${NET.trackSource}`] : []),
       '駅の並び: <a href="https://ekidata.jp/" target="_blank">駅データ.jp</a>',
       ...(NET.credits && NET.credits.length
-        ? [`時刻表: ${NET.credits.join('・')}（<a href="https://creativecommons.org/licenses/by/4.0/deed.ja" target="_blank">CC BY 4.0</a>）`] : []),
-      'その他の路線の時刻は推計',
+        ? [`時刻表（GTFS）: ${NET.credits.map(c => c.replace(/（.*?）/, '').replace(/\s*GTFS$/, '')).join('・')}（<a href="https://creativecommons.org/licenses/by/4.0/deed.ja" target="_blank">CC BY 4.0</a>）`] : []),
+      '航路: © <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors',
+      '空港統計: 国土交通省',
+      'その他の時刻は推計',
       '<a href="DATA_SOURCES.md" target="_blank">データ出典</a>',
     ].join(' | '),
   }), 'bottom-right');
@@ -190,7 +194,20 @@
       },
     });
 
-    // 駅 (JR・郊外線は広域から、路面電車は拡大時のみ表示)
+    // 航路 (破線)
+    map.addLayer({
+      id: 'ferry-routes', type: 'line', source: 'tracks',
+      filter: ['==', ['get', 'kind'], 'ship'],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': dark ? '#8fb6e8' : '#3f6fa8',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 7, 1, 12, 2, 16, 3],
+        'line-dasharray': [2, 2],
+        'line-opacity': 0.8,
+      },
+    });
+
+    // 駅・港 (JR・郊外線・港は広域から、路面電車は拡大時のみ表示)
     map.addSource('stations', { type: 'geojson', data: stationsGeoJSON() });
     for (const kind of ['rail', 'tram']) {
       map.addLayer({
@@ -204,9 +221,10 @@
         },
       });
     }
+    map.addSource('station-label-data', { type: 'geojson', data: stationsGeoJSON() });
     for (const kind of ['rail', 'tram']) {
       map.addLayer({
-        id: `labels-${kind}`, type: 'symbol', source: 'stations',
+        id: `labels-${kind}`, type: 'symbol', source: 'station-label-data',
         minzoom: kind === 'rail' ? 11 : 14.5,
         layout: {
           'text-field': ['get', 'name'],
@@ -224,6 +242,45 @@
       });
     }
 
+    // 空港 (敷地と、乗降客数に応じた大きさの印)
+    map.addSource('airport-data', { type: 'geojson', data: airportsGeoJSON() });
+    map.addLayer({
+      id: 'airport-area', type: 'fill', source: 'airport-data',
+      filter: ['==', ['get', 'shape'], 'area'],
+      paint: { 'fill-color': dark ? '#5b7aa6' : '#7d9cc7', 'fill-opacity': 0.18 },
+    });
+    map.addLayer({
+      id: 'airport-points', type: 'circle', source: 'airport-data',
+      filter: ['==', ['get', 'shape'], 'point'],
+      paint: {
+        // 面積が乗降客数に比例するよう、半径は平方根に比例させる
+        'circle-radius': ['interpolate', ['linear'], ['zoom'],
+          7, ['*', 9, ['sqrt', ['/', ['get', 'passengers'], 3300000]]],
+          12, ['*', 22, ['sqrt', ['/', ['get', 'passengers'], 3300000]]]],
+        'circle-color': 'rgba(0,0,0,0)',
+        'circle-stroke-color': dark ? '#8fb6e8' : '#2a5a96',
+        'circle-stroke-width': 2,
+      },
+    });
+    // 文字はフォントが読めないとソース全体が描けなくなるので、別のソースにする
+    map.addSource('airport-label-data', { type: 'geojson', data: airportsGeoJSON() });
+    map.addLayer({
+      id: 'airport-labels', type: 'symbol', source: 'airport-label-data',
+      filter: ['==', ['get', 'shape'], 'point'],
+      layout: {
+        'text-field': ['concat', ['get', 'name'], '\n', ['get', 'label']],
+        'text-font': ['Noto Sans Regular'],
+        'text-size': 12,
+        'text-offset': [0, 1.6],
+        'text-anchor': 'top',
+      },
+      paint: {
+        'text-color': dark ? '#e8ecf1' : '#1d2733',
+        'text-halo-color': dark ? '#0b0e13' : '#ffffff',
+        'text-halo-width': 1.5,
+      },
+    });
+
     // 到達圏
     map.addSource('reach', { type: 'geojson', data: reachGeoJSON() });
     map.addLayer({
@@ -235,8 +292,9 @@
         'circle-stroke-width': 2,
       },
     });
+    map.addSource('reach-label-data', { type: 'geojson', data: reachGeoJSON() });
     map.addLayer({
-      id: 'reach-labels', type: 'symbol', source: 'reach', minzoom: 10.5,
+      id: 'reach-labels', type: 'symbol', source: 'reach-label-data', minzoom: 10.5,
       layout: {
         'text-field': ['case', ['get', 'origin'], ['concat', ['get', 'name'], ' 出発'], ['concat', ['get', 'name'], ' ', ['get', 'label']]],
         'text-font': ['Noto Sans Regular'],
@@ -303,6 +361,19 @@
     };
   }
 
+  function airportsGeoJSON() {
+    const features = [];
+    for (const a of NET.airports || []) {
+      const props = {
+        id: a.id, name: a.name, passengers: a.stats.passengers,
+        label: `${a.stats.year}年 ${Math.round(a.stats.passengers / 10000)}万人`,
+      };
+      features.push({ type: 'Feature', properties: { ...props, shape: 'area' }, geometry: { type: 'Polygon', coordinates: [a.polygon] } });
+      features.push({ type: 'Feature', properties: { ...props, shape: 'point' }, geometry: { type: 'Point', coordinates: a.coord } });
+    }
+    return { type: 'FeatureCollection', features };
+  }
+
   function stationsGeoJSON() {
     const seen = new Map();
     for (const l of NET.lines) {
@@ -329,11 +400,15 @@
     const lineGroups = new Set(on);
     if (state.groups.jr_ltd) lineGroups.add('jr');
     const f = ['in', ['get', 'group'], ['literal', [...lineGroups]]];
-    map.setFilter('tracks', f);
-    map.setFilter('tracks-casing', f);
+    const notShip = ['!=', ['get', 'kind'], 'ship'];
+    map.setFilter('tracks', ['all', f, notShip]);
+    map.setFilter('tracks-casing', ['all', f, notShip]);
+    map.setFilter('ferry-routes', ['all', f, ['==', ['get', 'kind'], 'ship']]);
     const inGroups = ['any', ...[...lineGroups].map(g => ['in', `,${g},`, ['get', 'groups']])];
     for (const kind of ['rail', 'tram']) {
-      const sf = ['all', ['==', ['get', 'kind'], kind], inGroups];
+      // 'rail' のレイヤーには鉄道の駅と港を、'tram' のレイヤーには電停を出す
+      const kindFilter = kind === 'tram' ? ['==', ['get', 'kind'], 'tram'] : ['!=', ['get', 'kind'], 'tram'];
+      const sf = ['all', kindFilter, inGroups];
       map.setFilter(`stations-${kind}`, sf);
       map.setFilter(`labels-${kind}`, sf);
     }
@@ -422,11 +497,85 @@
 
   const WINDOW_COLOR = '#22303c';
 
+  const HULL_COLOR = '#1f3f66';
+
+  // 飛行機: 胴体・主翼・尾翼を、その地点の高度に浮かべて描く
+  function altitudeAt(sv, d) {
+    const a = sv.alt;
+    if (!a) return 0;
+    let lo = 0, hi = a.length - 1;
+    if (d <= a[0][0]) return a[0][1];
+    if (d >= a[hi][0]) return a[hi][1];
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (a[mid][0] <= d) lo = mid; else hi = mid;
+    }
+    const f = (d - a[lo][0]) / (a[hi][0] - a[lo][0] || 1);
+    return a[lo][1] + (a[hi][1] - a[lo][1]) * f;
+  }
+
+  function planeFeatures(tr, scale, features, lights) {
+    const sv = tr.service;
+    const s = Math.max(1, scale / 2);
+    const L = sv.carLength * s, span = sv.width * s, h = sv.height * s;
+    const p = tr.pattern.pointAt(tr.dist);
+    const brg = p.brg;
+    const left = brg - Math.PI / 2;
+    // 機首を現在地に置き、胴体・翼をその後ろに描く
+    const at = (back, side) => offset(offset(p.c, brg + Math.PI, back), left, side);
+    const alt = altitudeAt(sv, tr.dist);
+    const base = alt + 0.5 * s;
+    const poly = ring => { ring.push(ring[0]); return { type: 'Polygon', coordinates: [ring] }; };
+    const body = poly([at(0, 0), at(L * 0.08, L * 0.06), at(L, L * 0.05), at(L, -L * 0.05), at(L * 0.08, -L * 0.06)]);
+    const wing = poly([at(L * 0.38, 0), at(L * 0.55, span / 2), at(L * 0.62, span / 2), at(L * 0.55, 0),
+      at(L * 0.62, -span / 2), at(L * 0.55, -span / 2)]);
+    const tail = poly([at(L * 0.85, 0), at(L * 0.95, span * 0.18), at(L, span * 0.18), at(L, -span * 0.18),
+      at(L * 0.95, -span * 0.18)]);
+    for (const [geometry, color, hh] of [[body, sv.color, h], [wing, '#c9d2dc', h * 0.35], [tail, '#c9d2dc', h * 0.35]]) {
+      features.push({ type: 'Feature', properties: { id: tr.id, color, b: base, h: base + hh }, geometry });
+    }
+    lights.push(light(at(L * 0.6, span / 2), '#ff3b30'));
+    lights.push(light(at(L * 0.6, -span / 2), '#34c759'));
+    lights.push(light(at(0, 0), '#fff6d8'));
+  }
+
+  // 船: 船首のとがった船体と、船尾寄りの客室を重ねる
+  function shipFeatures(tr, scale, features, lights) {
+    const sv = tr.service;
+    const s = Math.max(1, scale / 4); // 船は大きいので誇張を控えめにする
+    const L = sv.carLength * s, W = sv.width * s, h = sv.height * s;
+    const head = Math.max(tr.dist, Math.min(L, tr.pattern.length));
+    const f = tr.pattern.pointAt(head);
+    const b = tr.pattern.pointAt(Math.max(0, head - L));
+    const brg = bearing(b.c, f.c) || f.brg;
+    const left = brg - Math.PI / 2;
+    const at = (d, side) => offset(offset(b.c, brg, d), left, side);
+    const hull = [at(0, W / 2), at(L * 0.75, W / 2), at(L, 0), at(L * 0.75, -W / 2), at(0, -W / 2)];
+    hull.push(hull[0]);
+    const cabin = [at(L * 0.12, W * 0.35), at(L * 0.6, W * 0.35), at(L * 0.6, -W * 0.35), at(L * 0.12, -W * 0.35)];
+    cabin.push(cabin[0]);
+    const base = 0.3 * s;
+    features.push({ type: 'Feature', properties: { id: tr.id, color: HULL_COLOR, b: base, h: base + h * 0.4 },
+      geometry: { type: 'Polygon', coordinates: [hull] } });
+    features.push({ type: 'Feature', properties: { id: tr.id, color: sv.color, b: base + h * 0.4, h: base + h },
+      geometry: { type: 'Polygon', coordinates: [cabin] } });
+    lights.push(light(at(L, 0), '#fff6d8'));
+    lights.push(light(at(0, 0), '#ff3b30'));
+  }
+
   function trainFeatures(trains, scale) {
     const features = [];
     const lights = [];
     for (const tr of trains) {
       const sv = tr.service;
+      if (sv.kind === 'ship') {
+        shipFeatures(tr, scale, features, lights);
+        continue;
+      }
+      if (sv.kind === 'plane') {
+        planeFeatures(tr, scale, features, lights);
+        continue;
+      }
       const L = sv.carLength * scale;
       const W = sv.width * scale;
       const gap = 0.8 * scale;
@@ -513,6 +662,7 @@
     if (now - lastBoard > 1000) {
       lastBoard = now;
       if (state.station) renderStation();
+      if (state.airport) renderAirportFlights();
       renderChartNow();
     }
   }
@@ -529,6 +679,15 @@
     renderInfo();
     renderStation();
   });
+  for (const layer of ['airport-points', 'airport-area']) {
+    map.on('click', layer, e => {
+      if (e.defaultPrevented) return;
+      e.preventDefault();
+      openAirport(e.features[0].properties.id);
+    });
+    map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
+  }
   for (const layer of ['stations-rail', 'stations-tram']) {
     map.on('click', layer, e => {
       if (e.defaultPrevented) return;
@@ -544,8 +703,10 @@
     state.selected = null;
     state.follow = false;
     state.station = null;
+    state.airport = null;
     renderInfo();
     renderStation();
+    renderAirport();
   });
   map.on('mouseenter', 'trains', () => { map.getCanvas().style.cursor = 'pointer'; });
   map.on('mouseleave', 'trains', () => { map.getCanvas().style.cursor = ''; });
@@ -568,13 +729,25 @@
     if (state.follow) map.jumpTo({ center: p.c });
     const path = tr.pattern.path;
     let status;
+    const ship = tr.service.kind === 'ship';
+    if (tr.service.kind === 'plane') {
+      const sv = tr.service;
+      const alt = Math.round(altitudeAt(sv, tr.dist) / 10) * 10;
+      const left = Math.max(0, Math.round((tr.segs[tr.segs.length - 1].t1 - tr.elapsed) / 60));
+      status = sv.flight === 'dep'
+        ? (alt > 0 ? `${sv.toName} へ向けて上昇中（高度 約${alt.toLocaleString()} m）` : '離陸滑走中')
+        : (alt > 0 ? `着陸まで あと約${left}分（高度 約${alt.toLocaleString()} m）` : '着陸しました');
+      document.getElementById('info-status').textContent = status;
+      document.getElementById('info-stops').replaceChildren();
+      return;
+    }
     if (tr.waiting) {
-      status = `${path[0][0]} で発車待ち（${formatTime(tr.dep).slice(0, 5)} 発）`;
+      status = `${path[0][0]} で${ship ? '出港' : '発車'}待ち（${formatTime(tr.dep).slice(0, 5)} 発）`;
     } else if (tr.stopped && tr.at === path.length - 1) {
-      status = `${path[tr.at][0]} に到着しました`;
+      status = `${path[tr.at][0]} に${ship ? '入港' : '到着'}しました`;
     } else if (tr.stopped) {
       const seg = tr.segs[tr.seg];
-      status = `${path[tr.at][0]} に停車中（${formatTime(tr.dep + seg.t0).slice(0, 5)} 発）`;
+      status = `${path[tr.at][0]} に${ship ? '停泊' : '停車'}中（${formatTime(tr.dep + seg.t0).slice(0, 5)} 発）`;
     } else {
       const seg = tr.segs[tr.seg];
       status = `次は ${path[tr.next][0]}（${formatTime(tr.dep + seg.t1).slice(0, 5)} 着予定）`;
@@ -619,15 +792,23 @@
     }
     const sv = tr.service;
     const p = tr.pattern;
-    const dest = sv.loop ? '' : `${p.destination} 行`;
+    const dest = sv.kind === 'plane'
+      ? (sv.flight === 'dep' ? `${sv.toName} 行き（出発便）` : `${sv.fromName} 発（到着便）`)
+      : sv.loop ? '' : `${p.destination} 行`;
     const origin = p.path[0][0];
     document.getElementById('info-swatch').style.background = sv.color;
     document.getElementById('info-name').textContent = sv.name;
     document.getElementById('info-dest').textContent = dest;
     document.getElementById('info-detail').textContent =
-      `${origin} ${formatTime(tr.dep).slice(0, 5)} 発 · ${p.tripSegs ? '時刻表データ' : '推計ダイヤ'}` + (sv.note ? ` · ${sv.note}` : '');
+      (sv.kind === 'plane'
+        ? (sv.flight === 'dep'
+          ? `${sv.fromName} ${formatTime(tr.dep).slice(0, 5)} 離陸`
+          : `${sv.toName} ${formatTime(tr.dep + tr.segs[tr.segs.length - 1].t1).slice(0, 5)} 着陸予定`)
+        : `${origin} ${formatTime(tr.dep).slice(0, 5)} 発 · ${p.tripSegs ? '時刻表データ' : '推計ダイヤ'}`)
+      + (sv.note ? ` · ${sv.note}` : '');
     const followBtn = document.getElementById('info-follow');
-    followBtn.textContent = state.follow ? '追跡をやめる' : 'この列車を追跡';
+    const noun = { ship: '船', plane: '飛行機' }[sv.kind] || '列車';
+    followBtn.textContent = state.follow ? '追跡をやめる' : `この${noun}を追跡`;
     followBtn.setAttribute('aria-pressed', String(state.follow));
     box.hidden = false;
   }
@@ -689,7 +870,11 @@
 
   function applyReachMode() {
     const on = !!state.reach;
-    if (map.getSource('reach')) map.getSource('reach').setData(reachGeoJSON());
+    if (map.getSource('reach')) {
+      const data = reachGeoJSON();
+      map.getSource('reach').setData(data);
+      map.getSource('reach-label-data').setData(data);
+    }
     // 到達圏の表示中は線路と駅を控えめにする
     if (map.getLayer('tracks')) {
       map.setPaintProperty('tracks', 'line-opacity', on ? 0.3 : 1);
@@ -738,6 +923,162 @@
     if (state.station) showReach(state.station.name, state.station.c);
   });
 
+  // ---------------------------------------------------------------- 空港の利用状況
+  function openAirport(id) {
+    state.airport = id;
+    state.station = null;
+    state.selected = null;
+    state.follow = false;
+    renderInfo();
+    renderStation();
+    renderAirport();
+  }
+
+  const fmtInt = n => Math.round(n).toLocaleString('ja-JP');
+  const man = n => `${(n / 10000).toFixed(n >= 1e6 ? 0 : 1)}万`;
+
+  // 単一系列の縦棒グラフ (月別) と折れ線グラフ (年別)。ホバーで値、表でも確認できる
+  function barChart(svg, tip, rows, label) {
+    const W = 272, H = 96, top = 8, bottom = 16, gap = 2;
+    const max = Math.max(...rows.map(r => r.v)) * 1.1;
+    const bw = (W - gap * (rows.length - 1)) / rows.length;
+    const y = v => H - bottom - (v / max) * (H - top - bottom);
+    const nodes = [svgEl('line', { class: 'axis', x1: 0, x2: W, y1: H - bottom, y2: H - bottom })];
+    rows.forEach((r, i) => {
+      const x = i * (bw + gap);
+      const hgt = H - bottom - y(r.v);
+      // 上端だけ角を丸めた棒 (4px)
+      const rad = Math.min(4, bw / 2, hgt);
+      const d = `M${x},${H - bottom}V${y(r.v) + rad}Q${x},${y(r.v)} ${x + rad},${y(r.v)}H${x + bw - rad}` +
+        `Q${x + bw},${y(r.v)} ${x + bw},${y(r.v) + rad}V${H - bottom}Z`;
+      const bar = svgEl('path', { class: 'bar', d, tabindex: 0 });
+      const show = () => {
+        svg.querySelectorAll('.bar').forEach(b => b.classList.remove('on'));
+        bar.classList.add('on');
+        tip.hidden = false;
+        tip.innerHTML = '<b></b> <span></span>';
+        tip.querySelector('b').textContent = `${man(r.v)}人`;
+        tip.querySelector('span').textContent = r.label;
+        tip.style.left = `${((x + bw / 2) / W) * 100}%`;
+      };
+      bar.addEventListener('pointerenter', show);
+      bar.addEventListener('focus', show);
+      nodes.push(bar);
+      if (i % 3 === 0 || i === rows.length - 1) {
+        const t = svgEl('text', { class: 'tick', x: x + bw / 2, y: H - 3, 'text-anchor': 'middle' });
+        t.textContent = r.short;
+        nodes.push(t);
+      }
+    });
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.setAttribute('aria-label', label);
+    svg.replaceChildren(...nodes);
+    svg.onpointerleave = () => {
+      tip.hidden = true;
+      svg.querySelectorAll('.bar').forEach(b => b.classList.remove('on'));
+    };
+  }
+
+  function lineChart(svg, tip, rows, label) {
+    const W = 272, H = 96, top = 10, bottom = 16, side = 6;
+    const max = Math.max(...rows.map(r => r.v)) * 1.1;
+    const x = i => side + (i / (rows.length - 1)) * (W - side * 2);
+    const y = v => H - bottom - (v / max) * (H - top - bottom);
+    const d = rows.map((r, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(r.v).toFixed(1)}`).join('');
+    const nodes = [
+      svgEl('line', { class: 'axis', x1: 0, x2: W, y1: H - bottom, y2: H - bottom }),
+      svgEl('path', { class: 'line', d }),
+      svgEl('circle', { class: 'dot', r: 4, cx: x(rows.length - 1), cy: y(rows[rows.length - 1].v) }),
+    ];
+    rows.forEach((r, i) => {
+      if (i === 0 || i === rows.length - 1 || r.short === '2020') {
+        const t = svgEl('text', { class: 'tick', x: x(i), y: H - 3, 'text-anchor': i === 0 ? 'start' : i === rows.length - 1 ? 'end' : 'middle' });
+        t.textContent = r.short;
+        nodes.push(t);
+      }
+    });
+    const hair = svgEl('line', { class: 'hair', y1: top - 4, y2: H - bottom, visibility: 'hidden' });
+    const hot = svgEl('circle', { class: 'dot', r: 4, visibility: 'hidden' });
+    nodes.push(hair, hot);
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.setAttribute('aria-label', label);
+    svg.replaceChildren(...nodes);
+    svg.onpointermove = e => {
+      const rect = svg.getBoundingClientRect();
+      const px = (e.clientX - rect.left) / rect.width * W;
+      const i = Math.max(0, Math.min(rows.length - 1, Math.round((px - side) / (W - side * 2) * (rows.length - 1))));
+      const r = rows[i];
+      hair.setAttribute('x1', x(i)); hair.setAttribute('x2', x(i)); hair.setAttribute('visibility', 'visible');
+      hot.setAttribute('cx', x(i)); hot.setAttribute('cy', y(r.v)); hot.setAttribute('visibility', 'visible');
+      tip.hidden = false;
+      tip.innerHTML = '<b></b> <span></span>';
+      tip.querySelector('b').textContent = `${man(r.v)}人`;
+      tip.querySelector('span').textContent = r.label;
+      tip.style.left = `${(x(i) / W) * 100}%`;
+    };
+    svg.onpointerleave = () => {
+      tip.hidden = true;
+      hair.setAttribute('visibility', 'hidden');
+      hot.setAttribute('visibility', 'hidden');
+    };
+  }
+
+  function renderAirport() {
+    const box = document.getElementById('airport');
+    const a = state.airport && (NET.airports || []).find(x => x.id === state.airport);
+    if (!a) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    const st = a.stats;
+    document.getElementById('airport-name').textContent = a.name;
+    document.getElementById('airport-total').textContent = `${fmtInt(st.passengers)} 人`;
+    document.getElementById('airport-split').textContent =
+      `国内線 ${man(st.domestic)}人 ・ 国際線 ${man(st.international)}人 ・ 着陸 ${fmtInt(st.landings)} 回`;
+    document.getElementById('airport-meta').textContent =
+      `滑走路 ${fmtInt(a.runway)} m ・ 運用 ${a.hours[0].slice(0, 2)}:${a.hours[0].slice(2)}〜${a.hours[1].slice(0, 2)}:${a.hours[1].slice(2)}`;
+    const monthly = st.monthly.map(m => ({ v: m.passengers, label: `${st.year}年${m.month}月`, short: `${m.month}月` }));
+    barChart(document.getElementById('airport-monthly'), document.getElementById('airport-monthly-tip'), monthly,
+      `${a.name} ${st.year}年の月別乗降客数。最多は${monthly.reduce((b, r) => (r.v > b.v ? r : b)).label}`);
+    const trend = st.trend.map(t => ({ v: t.passengers, label: `${t.year}年`, short: String(t.year) }));
+    lineChart(document.getElementById('airport-trend'), document.getElementById('airport-trend-tip'), trend,
+      `${a.name}の乗降客数の推移（${trend[0].label}〜${trend[trend.length - 1].label}）`);
+    const tbody = document.querySelector('#airport-table tbody');
+    tbody.replaceChildren(...st.trend.map(t => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td></td><td></td><td></td>';
+      tr.children[0].textContent = `${t.year}年`;
+      tr.children[1].textContent = fmtInt(t.passengers);
+      tr.children[2].textContent = fmtInt(t.landings);
+      return tr;
+    }));
+    renderAirportFlights();
+  }
+
+  function renderAirportFlights() {
+    const a = state.airport && (NET.airports || []).find(x => x.id === state.airport);
+    if (!a) return;
+    const t = ((simTime() % 86400) + 86400) % 86400;
+    const visible = sv => state.groups[sv.group];
+    const deps = sim.departuresAt(a.name, a.coord, t, { limit: 4, radius: 4000, isVisible: visible });
+    const arrs = sim.arrivalsAt(a.name, a.coord, t, { limit: 4, radius: 4000, isVisible: visible });
+    const row = (time, text) => {
+      const li = document.createElement('li');
+      li.innerHTML = '<span class="dep-time"></span><span class="dep-name"></span>';
+      li.querySelector('.dep-time').textContent = formatTime(time).slice(0, 5);
+      li.querySelector('.dep-name').textContent = text;
+      return li;
+    };
+    document.getElementById('airport-deps').replaceChildren(...deps.map(d => row(d.time, `${d.service.toName} 行き`)));
+    document.getElementById('airport-arrs').replaceChildren(...arrs.map(d => row(d.time, `${d.service.fromName} から`)));
+  }
+
+  document.getElementById('airport-close').addEventListener('click', () => {
+    state.airport = null;
+    renderAirport();
+  });
+
   // ---------------------------------------------------------------- 駅の発車案内
   function shortName(sv) {
     const m = sv.name.match(/^(\d+系統)/);
@@ -749,6 +1090,8 @@
   }
 
   function openStation(name, c) {
+    state.airport = null;
+    renderAirport();
     state.station = { name, c };
     state.selected = null;
     state.follow = false;
@@ -870,6 +1213,7 @@
     for (const list of byName.values()) {
       for (const st of list) entries.push({ ...st, label: list.length > 1 ? `${st.name}（${st.line}）` : st.name });
     }
+    for (const a of NET.airports || []) entries.push({ name: a.name, c: a.coord, line: '空港', kind: 'air', label: a.name, airport: a.id });
     return entries.sort((a, b) => a.label.localeCompare(b.label, 'ja'));
   })();
   const datalist = document.getElementById('station-list');
@@ -883,8 +1227,9 @@
       stationIndex.find(x => x.name === e.target.value.trim());
     if (!st) return;
     state.follow = false;
-    map.flyTo({ center: st.c, zoom: st.kind === 'tram' ? 16.3 : 15.3, pitch: 60, duration: 2000, essential: true });
-    openStation(st.name, st.c);
+    map.flyTo({ center: st.c, zoom: st.kind === 'tram' ? 16.3 : st.airport ? 12.5 : 15.3, pitch: 60, duration: 2000, essential: true });
+    if (st.airport) openAirport(st.airport);
+    else openStation(st.name, st.c);
     e.target.blur();
   });
 
