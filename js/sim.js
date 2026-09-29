@@ -225,8 +225,8 @@
         if (sv.loop) {
           this.patterns.push(new Pattern(sv, fwd, expandDepartures(sv, false, this.dayType), sv.name));
         } else {
-          this.patterns.push(new Pattern(sv, fwd, expandDepartures(sv, false, this.dayType), 'down'));
-          if (sv.both) this.patterns.push(new Pattern(sv, rev, expandDepartures(sv, true, this.dayType), 'up'));
+          this.patterns.push(this._anchor(new Pattern(sv, fwd, expandDepartures(sv, false, this.dayType), 'down'), sv.departuresAt));
+          if (sv.both) this.patterns.push(this._anchor(new Pattern(sv, rev, expandDepartures(sv, true, this.dayType), 'up'), sv.departuresReturnAt));
         }
       }
       for (const p of this.patterns) if (p.service.coupleWith) this._couple(p);
@@ -235,6 +235,15 @@
     // 併結・切り離し: 相手の列車 (partner) の駅の発着時刻に合わせて、この列車の時刻を決める。
     //   終点がその駅 (例: 高松→宇多津) … 相手が発車する lead 秒前に着き、相手の後ろに連結して消える
     //   始発がその駅 (例: 宇多津→高松) … 相手が着いた瞬間に切り離されて現れ、split 秒後に発車する
+    // departuresAt: 発車時刻を始発駅ではなく途中駅 (その駅を発車する時刻) で指定した系統。始発駅の時刻に直す
+    _anchor(p, station) {
+      if (!station) return p;
+      const k = p.path.findIndex(x => x[0] === station && x[2]);
+      const sg = k >= 0 && p.segs.find(x => x.from === k);
+      if (sg) p.departures = p.departures.map(d => d - sg.t0);
+      return p;
+    }
+
     _couple(p) {
       const cw = p.service.coupleWith;
       const q = this.patterns.find(x => x.service.id === cw.partner && x.dirLabel === p.dirLabel);
