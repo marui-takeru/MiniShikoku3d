@@ -175,10 +175,32 @@
   class Simulator {
     constructor(network) {
       this.network = network;
+      this.dayType = 'weekday';
+      this._build();
+    }
+
+    // 平日ダイヤ / 土休日ダイヤの切り替え。時刻表データ (trips) の便を選び直す
+    setDayType(type) {
+      if (type === this.dayType) return;
+      this.dayType = type;
+      this._build();
+    }
+
+    // JST の日付 (YYYYMMDD) から、その日のダイヤの種類を判定する (土日・祝日は土休日ダイヤ)
+    dayTypeOf(ymd) {
+      const d = new Date(Date.UTC(+ymd.slice(0, 4), +ymd.slice(4, 6) - 1, +ymd.slice(6, 8)));
+      const holidays = (this.network.calendar && this.network.calendar.holidays) || [];
+      return d.getUTCDay() === 0 || d.getUTCDay() === 6 || holidays.includes(ymd) ? 'holiday' : 'weekday';
+    }
+
+    _build() {
       this.patterns = [];
-      for (const sv of network.services) {
+      this._st = null;
+      this._conn = null;
+      for (const sv of this.network.services) {
         if (sv.trips) {
-          this.patterns.push(new Pattern(sv, sv.path, sv.trips.map(tr => tr.dep), 'trips', sv.trips));
+          const trips = sv.trips.filter(tr => !tr.days || tr.days.includes(this.dayType));
+          if (trips.length) this.patterns.push(new Pattern(sv, sv.path, trips.map(tr => tr.dep), 'trips', trips));
           continue;
         }
         const fwd = sv.path;

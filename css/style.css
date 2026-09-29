@@ -71,6 +71,7 @@ section { border-top: 1px solid var(--line); padding-top: 2px; }
 .row { display: flex; gap: 6px; margin-top: 6px; }
 .row.wrap { flex-wrap: wrap; }
 #speeds button { flex: 1; }
+button.chip { padding: 3px 10px; border-radius: 999px; font-size: 12px; }
 #jump { flex: 1; min-width: 0; }
 
 .legend-item { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 4px 0; cursor: pointer; }

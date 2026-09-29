@@ -26,6 +26,9 @@
           <span id="clock" class="clock">--:--:--</span>
           <span class="count"><b id="train-count">0</b> 本運行中</span>
         </div>
+        <div class="row">
+          <button id="daytype" class="chip" title="平日ダイヤと土休日ダイヤを切り替え（時刻表データのある路線）"></button>
+        </div>
         <div class="row" id="speeds"></div>
         <div class="row">
           <button id="pause" aria-label="一時停止">❚❚</button>
@@ -87,7 +90,7 @@
         キー操作: Space 一時停止 ／ 1〜4 倍速 ／ N 現在時刻 ／ C 撮影モード ／ F 追跡 ／ Esc 閉じる
       </p>
       <p class="note">
-        列車の位置は公開時刻表を参考にした<strong>運行パターンからの推計</strong>で、実際の運行・遅延は反映していません。
+        ことでん・とさでん交通・阿佐海岸鉄道は公開されている<strong>時刻表データ（GTFS）</strong>、それ以外の路線は<strong>運行パターンからの推計</strong>で走らせています。遅延は反映していません。
       </p>
     </div>
   </aside>
@@ -139,7 +142,7 @@
     <ol id="station-deps"></ol>
     <button id="station-reach">ここから行ける範囲（到達圏）を表示</button>
     <p id="station-empty" class="note" hidden>3 時間以内に発車する列車はありません。</p>
-    <p class="note">発車時刻は運行パターンからの推計です。</p>
+    <p id="station-source" class="note"></p>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>

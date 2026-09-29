@@ -5,6 +5,10 @@
   const { Simulator, offset, bearing, formatTime, parseTime } = window.Sim;
   const NET = window.NETWORK;
   const sim = new Simulator(NET);
+  // 今日 (JST) が平日か土休日かで、時刻表データの便を選ぶ。?day=weekday|holiday で固定もできる
+  const todayYmd = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10).replace(/-/g, '');
+  const dayParam = new URLSearchParams(location.search).get('day');
+  sim.setDayType(['weekday', 'holiday'].includes(dayParam) ? dayParam : sim.dayTypeOf(todayYmd));
 
   // ---------------------------------------------------------------- 設定
   const STYLES = {
@@ -93,7 +97,11 @@
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right');
   map.addControl(new maplibregl.AttributionControl({
     compact: true,
-    customAttribution: '駅座標: <a href="https://ekidata.jp/" target="_blank">駅データ.jp</a> | 列車位置はダイヤパターンによる推計',
+    customAttribution: [
+      '駅座標: <a href="https://ekidata.jp/" target="_blank">駅データ.jp</a>',
+      ...(NET.credits && NET.credits.length ? [`時刻表: ${NET.credits.join('、')}`] : []),
+      '時刻表データの無い路線はダイヤパターンによる推計',
+    ].join(' | '),
   }), 'bottom-right');
 
   function fallbackStyle(theme) {
@@ -612,7 +620,7 @@
     document.getElementById('info-name').textContent = sv.name;
     document.getElementById('info-dest').textContent = dest;
     document.getElementById('info-detail').textContent =
-      `${origin} ${formatTime(tr.dep).slice(0, 5)} 発 · ${sv.cars}両` + (sv.note ? ` · ${sv.note}` : '');
+      `${origin} ${formatTime(tr.dep).slice(0, 5)} 発 · ${p.tripSegs ? '時刻表データ' : '推計ダイヤ'}` + (sv.note ? ` · ${sv.note}` : '');
     const followBtn = document.getElementById('info-follow');
     followBtn.textContent = state.follow ? '追跡をやめる' : 'この列車を追跡';
     followBtn.setAttribute('aria-pressed', String(state.follow));
@@ -769,6 +777,12 @@
       return li;
     }));
     document.getElementById('station-empty').hidden = deps.length > 0;
+    // 時刻の出どころ (時刻表データか推計か) を明記する
+    const real = deps.filter(d => d.pattern.tripSegs).length;
+    document.getElementById('station-source').textContent =
+      real === deps.length && real > 0 ? '発車時刻は時刻表データ（GTFS）にもとづきます。'
+        : real > 0 ? '発車時刻は時刻表データ（GTFS）と運行パターンからの推計の混在です。'
+          : '発車時刻は運行パターンからの推計です。';
   }
 
   document.getElementById('station-close').addEventListener('click', () => {
@@ -915,7 +929,7 @@
   let dayKey = '';
 
   function computeDayCounts() {
-    const key = NET.groups.map(g => (state.groups[g.id] ? 1 : 0)).join('');
+    const key = sim.dayType + NET.groups.map(g => (state.groups[g.id] ? 1 : 0)).join('');
     if (key === dayKey && dayCounts) return dayCounts;
     dayKey = key;
     dayCounts = [];
@@ -1011,6 +1025,25 @@
   })();
   renderDayChart();
 
+  // ---------------------------------------------------------------- 平日 / 土休日ダイヤ
+  const dayBtn = document.getElementById('daytype');
+  function renderDayType() {
+    dayBtn.textContent = sim.dayType === 'holiday' ? '土休日ダイヤ' : '平日ダイヤ';
+  }
+  dayBtn.addEventListener('click', () => {
+    sim.setDayType(sim.dayType === 'holiday' ? 'weekday' : 'holiday');
+    // 便の番号が変わるので、選択中の列車と到達圏は解除する
+    state.selected = null;
+    state.follow = false;
+    renderInfo();
+    if (state.reach) clearReach();
+    dayKey = '';
+    renderDayChart();
+    if (state.station) renderStation();
+    renderDayType();
+  });
+  renderDayType();
+
   // ---------------------------------------------------------------- 撮影モード・共有
   // 撮影モード: パネル類を隠し、カメラをゆっくり回転させる (動画・GIF 撮影用)
   let cinemaFrame = null;
@@ -1064,6 +1097,8 @@
     url.searchParams.set('t', formatTime(simTime()).slice(0, 5));
     if (state.clock.speed !== 1) url.searchParams.set('speed', String(state.clock.speed));
     else url.searchParams.delete('speed');
+    if (sim.dayType !== sim.dayTypeOf(todayYmd)) url.searchParams.set('day', sim.dayType);
+    else url.searchParams.delete('day');
     const btn = document.getElementById('share');
     try {
       await navigator.clipboard.writeText(url.toString());
