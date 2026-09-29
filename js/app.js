@@ -109,6 +109,7 @@
         ? [`時刻表（GTFS）: ${NET.credits.map(c => c.replace(/（.*?）/, '').replace(/\s*GTFS$/, '')).join('・')}（<a href="https://creativecommons.org/licenses/by/4.0/deed.ja" target="_blank">CC BY 4.0</a>）`] : []),
       '航路: © <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors',
       '空港統計: 国土交通省',
+      '運行本数: <a href="https://gtfs-gis.jp/railway_honsu/" target="_blank">全国鉄道運行本数データ</a>（CC BY 4.0）',
       'その他の時刻は推計',
       '<a href="DATA_SOURCES.md" target="_blank">データ出典</a>',
     ].join(' | '),
@@ -630,13 +631,14 @@
     const sv = tr.service;
     const c = tr.pattern.couple;
     const d = tr.dist;
-    const colors = Array(sv.cars).fill(sv.color);
-    const base = { head: d, cars: sv.cars, colors, pos: null, allowBehind: false };
+    const n = tr.cars || sv.cars; // 朝夕は増結した両数
+    const colors = Array(n).fill(sv.color);
+    const base = { head: d, cars: n, colors, pos: null, allowBehind: false };
     if (c && (c.role === 'lead-join' || c.role === 'lead-split')) {
       // しおかぜ: 宇多津を発車したら (松山行き) / 宇多津に着くまで (松山から) いしづち の 3 両を後ろにつなぐ
       const attached = c.role === 'lead-join' ? tr.elapsed >= c.at : tr.elapsed < c.at;
       if (attached) {
-        base.cars = sv.cars + c.cars;
+        base.cars = n + c.cars;
         base.colors = colors.concat(Array(c.cars).fill(c.color));
       }
     } else if (c && c.role === 'join') {
@@ -856,7 +858,8 @@
         ? (sv.flight === 'dep'
           ? `${sv.fromName} ${formatTime(tr.dep).slice(0, 5)} 離陸`
           : `${sv.toName} ${formatTime(tr.dep + tr.segs[tr.segs.length - 1].t1).slice(0, 5)} 着陸予定`)
-        : `${origin} ${formatTime(tr.dep).slice(0, 5)} 発 · ${p.tripSegs ? '時刻表データ' : '推計ダイヤ'}`)
+        : `${origin} ${formatTime(tr.dep).slice(0, 5)} 発 · ${p.tripSegs ? '時刻表データ' : '推計ダイヤ'}`
+          + (sv.kind === 'rail' && !coupledNow ? ` · ${tr.cars || sv.cars}両` : ''))
       + (sv.note ? ` · ${sv.note}` : '');
     const followBtn = document.getElementById('info-follow');
     const noun = { ship: '船', plane: '飛行機' }[sv.kind] || '列車';

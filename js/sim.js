@@ -181,6 +181,14 @@
     return [...new Set(out)].sort((x, y) => x - y);
   }
 
+  // 朝夕の増結: rushCars がある系統は、この時間帯に始発駅を出る列車の両数を増やす
+  const RUSH = [[6.5 * 3600, 8.5 * 3600], [16.5 * 3600, 19 * 3600]];
+  function carsFor(sv, dep) {
+    if (!sv.rushCars) return sv.cars;
+    const t = ((dep % 86400) + 86400) % 86400;
+    return RUSH.some(([a, b]) => t >= a && t < b) ? sv.rushCars : sv.cars;
+  }
+
   class Simulator {
     constructor(network) {
       this.network = network;
@@ -403,6 +411,7 @@
               pattern: p,
               service: p.service,
               dep,
+              cars: carsFor(p.service, dep),
               elapsed,
               waiting: elapsed < 0,
               segs,
@@ -421,5 +430,5 @@
     return [h, m, s].map(x => String(x).padStart(2, '0')).join(':');
   }
 
-  window.Sim = { Simulator, Pattern, offset, bearing, haversine, formatTime, parseTime, easeTrapezoid };
+  window.Sim = { Simulator, Pattern, carsFor, offset, bearing, haversine, formatTime, parseTime, easeTrapezoid };
 })();
