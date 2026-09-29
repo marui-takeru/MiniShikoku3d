@@ -98,10 +98,10 @@
   map.addControl(new maplibregl.AttributionControl({
     compact: true,
     customAttribution: [
-      '駅: <a href="https://ekidata.jp/" target="_blank">駅データ.jp</a>',
       ...(NET.trackSource === '国土数値情報（鉄道データ）'
-        ? ['線路: 「<a href="https://nlftp.mlit.go.jp/ksj/" target="_blank">国土数値情報（鉄道データ）</a>」（国土交通省）を加工して作成']
+        ? ['駅・線路: 「<a href="https://nlftp.mlit.go.jp/ksj/" target="_blank">国土数値情報（鉄道データ）</a>」（国土交通省）を加工して作成']
         : NET.trackSource ? [`線路: ${NET.trackSource}`] : []),
+      '駅の並び: <a href="https://ekidata.jp/" target="_blank">駅データ.jp</a>',
       ...(NET.credits && NET.credits.length
         ? [`時刻表: ${NET.credits.join('・')}（<a href="https://creativecommons.org/licenses/by/4.0/deed.ja" target="_blank">CC BY 4.0</a>）`] : []),
       'その他の路線の時刻は推計',

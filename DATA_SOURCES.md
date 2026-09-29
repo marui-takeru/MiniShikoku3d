@@ -7,7 +7,8 @@ Mini Shikoku 3D が使っているデータと、その性質・出典・注意�
 
 | 区分 | 内容 | 出典 | 性質 | ライセンス・注意 |
 | --- | --- | --- | --- | --- |
-| 駅の位置 | 四国の鉄道 26 路線の駅名・緯度経度 | [駅データ.jp](https://ekidata.jp/)（取得元: [piuccio/open-data-jp-railway-stations](https://github.com/piuccio/open-data-jp-railway-stations)） | 実データ | 利用規約（特に商用利用・再配布の条件）を要確認 |
+| 駅の位置 | 四国の鉄道 26 路線、545 駅の緯度経度 | 「[国土数値情報（鉄道データ N02、2024 年度）](https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N02-2024.html)」（国土交通省）の駅（ホームの中点）を加工して作成 | 実データ（加工） | CC BY 4.0。名前の違う 4 駅は対応表で照合（松山市駅前→松山市駅 など） |
+| 駅名・路線ごとの駅の並び | 路線に属する駅と、その順序 | [駅データ.jp](https://ekidata.jp/)（取得元: [piuccio/open-data-jp-railway-stations](https://github.com/piuccio/open-data-jp-railway-stations)） | 実データ | 座標は使っていない。利用規約（商用利用・再配布の条件）は要確認 |
 | 駅の並び順 | 路線ごとの駅の順序 | 駅データ.jp の駅コード順。後から追加された駅（土讃線 小村神社前、ことでん 綾川）は最も近い区間に挿入 | 実データ＋自動補正 | 補正は駅間距離にもとづく自動処理。実際の順序との照合は要確認 |
 | 線路の形 | 駅と駅を結ぶ線路の形 | 「[国土数値情報（鉄道データ N02、2024 年度）](https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N02-2024.html)」（国土交通省）を加工して作成。駅から 350m 以内の線路に吸着させ、同じ事業者の線路網の最短経路で駅間をつないだ。時刻表データのある路線は GTFS の走行経路（shapes） | 実データ（加工） | 530 区間中 529 区間。ことでん志度線 瓦町〜今橋 の 1 区間のみ直線のまま。CC BY 4.0（2020 年以降のデータ）。出典の表示が必要 |
 | 時刻表（ことでん・とさでん・阿佐海岸鉄道） | 便ごとの発着時刻、平日／土休日の区別、祝日、走行経路の形 | [ことでん GTFS](https://www.kotoden.co.jp/publichtm/gtfs/index.html)（高松琴平電気鉄道）、[とさでん交通 GTFS](https://ckan.odpt.org/organization/tosaden_traffic)、阿佐海岸鉄道 GTFS（[GTFS データリポジトリ](https://gtfs-data.jp/) 経由） | **実データ** | いずれも CC BY 4.0。出典表記が必要。遅延は反映しない |
