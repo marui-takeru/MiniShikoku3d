@@ -43,6 +43,7 @@
     tokushima: { center: [134.551, 34.074], zoom: 13.2, pitch: 55, bearing: 0 },
     shikoku: { center: [133.45, 33.72], zoom: 7.7, pitch: 35, bearing: 0 },
     setouchi: { center: [132.95, 33.95], zoom: 8.6, pitch: 45, bearing: 0 },
+    seto_ohashi: { center: [133.818, 34.385], zoom: 11.6, pitch: 60, bearing: -20 },
   };
 
   // ---------------------------------------------------------------- 状態
