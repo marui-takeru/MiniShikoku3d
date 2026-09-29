@@ -72,7 +72,9 @@
         const run = d / v + sv.accel * 2;
         segs.push({ from: segStart, to: i, d0: this.cum[segStart], d1: this.cum[i], t0: t, t1: t + run });
         t += run;
-        if (i !== this.path.length - 1) t += sv.dwell;
+        // 駅ごとの停車時間 (例: 併結・切り離しをする駅は長め)
+        const dwell = sv.stopDwell && sv.stopDwell[this.path[i][0]] !== undefined ? sv.stopDwell[this.path[i][0]] : sv.dwell;
+        if (i !== this.path.length - 1) t += dwell;
         segStart = i;
       }
       this.segs = segs;
@@ -161,6 +163,7 @@
   // 運転間隔の帯 (bands) から発車時刻を作る。
   // bandsByDay があれば平日 / 土休日で使い分け、bandsReturn* があれば上りは別の帯を使う
   function expandDepartures(sv, reverse, dayType = 'weekday') {
+    if (sv.coupleWith) return []; // 併結相手の時刻から後で決める (Simulator._couple)
     const explicit = reverse ? sv.departuresReturn : sv.departures;
     if (explicit) return explicit.map(parseTime);
     const byDay = reverse && sv.bandsByDayReturn ? sv.bandsByDayReturn : sv.bandsByDay;
@@ -217,6 +220,34 @@
           this.patterns.push(new Pattern(sv, fwd, expandDepartures(sv, false, this.dayType), 'down'));
           if (sv.both) this.patterns.push(new Pattern(sv, rev, expandDepartures(sv, true, this.dayType), 'up'));
         }
+      }
+      for (const p of this.patterns) if (p.service.coupleWith) this._couple(p);
+    }
+
+    // 併結・切り離し: 相手の列車 (partner) の駅の発着時刻に合わせて、この列車の時刻を決める。
+    //   終点がその駅 (例: 高松→宇多津) … 相手が発車する lead 秒前に着き、相手の後ろに連結して消える
+    //   始発がその駅 (例: 宇多津→高松) … 相手が着いた瞬間に切り離されて現れ、split 秒後に発車する
+    _couple(p) {
+      const cw = p.service.coupleWith;
+      const q = this.patterns.find(x => x.service.id === cw.partner && x.dirLabel === p.dirLabel);
+      if (!q) return;
+      const k = q.path.findIndex(x => x[0] === cw.station && x[2]);
+      const joins = p.path[p.path.length - 1][0] === cw.station;
+      const partnerCars = q.service.cars;
+      const extra = { cars: p.service.cars, color: p.service.color, name: p.service.name };
+      if (joins) {
+        const sg = q.segs.find(x => x.from === k); // 相手がその駅を発車する区間
+        p.departures = q.departures.map(d => d + sg.t0 - cw.lead - p.duration);
+        p.layover = 0;
+        p.linger = cw.lead;
+        p.couple = { role: 'join', partner: q, partnerCars, station: cw.station, partnerName: cw.partnerName };
+        q.couple = { role: 'lead-join', at: sg.t0, station: cw.station, index: k, ...extra };
+      } else {
+        const sg = q.segs.find(x => x.to === k); // 相手がその駅に着く区間
+        p.departures = q.departures.map(d => d + sg.t1 + cw.split);
+        p.layover = cw.split;
+        p.couple = { role: 'split', partner: q, partnerCars, station: cw.station, partnerName: cw.partnerName, stationCum: q.cum[k] };
+        q.couple = { role: 'lead-split', at: sg.t1, station: cw.station, index: k, ...extra };
       }
     }
 

@@ -584,14 +584,13 @@
       const lateral = (sv.kind === 'tram' ? 1.6 : 2.0) * scale;
       const h = sv.height * scale;
       const base = 0.4 * scale;
-      // 始発駅では編成全体がホームに収まるよう、先頭を 1 編成分だけ前に置く
-      const trainLen = Math.min(sv.cars * (L + gap) - gap, tr.pattern.length);
-      const head = Math.max(tr.dist, trainLen);
-      for (let k = 0; k < sv.cars; k++) {
+      const { head, cars, colors, pos, allowBehind } = consist(tr, L + gap);
+      const at = d => (d >= 0 || !allowBehind ? tr.pattern.pointAt(Math.max(0, d)) : pos(d));
+      for (let k = 0; k < cars; k++) {
         const dFront = head - k * (L + gap);
-        if (dFront <= 0) break;
-        const f = tr.pattern.pointAt(dFront);
-        const b = tr.pattern.pointAt(Math.max(0, dFront - L));
+        if (dFront <= 0 && !allowBehind) break;
+        const f = at(dFront);
+        const b = at(allowBehind ? dFront - L : Math.max(0, dFront - L));
         const brg = bearing(b.c, f.c) || f.brg;
         const left = brg - Math.PI / 2;
         const fc = offset(f.c, left, lateral);
@@ -608,11 +607,11 @@
         ring.push(ring[0]);
         // 夜間の前照灯 (先頭) と尾灯 (最後尾)
         if (k === 0) lights.push(light(offset(fc, brg, Math.min(L * 0.15, 3 * scale)), '#fff6d8'));
-        if (k === sv.cars - 1 || head - (k + 1) * (L + gap) <= 0) lights.push(light(bc, '#ff3b30'));
+        if (k === cars - 1 || (!allowBehind && head - (k + 1) * (L + gap) <= 0)) lights.push(light(bc, '#ff3b30'));
         const geometry = { type: 'Polygon', coordinates: [ring] };
         // 車体・窓の帯・上部車体を積み重ねて電車らしく見せる (上から見ても路線色が分かるよう屋根も路線色)
         for (const [from, to, color] of [
-          [0, 0.5, sv.color], [0.5, 0.78, WINDOW_COLOR], [0.78, 1, sv.color],
+          [0, 0.5, colors[k]], [0.5, 0.78, WINDOW_COLOR], [0.78, 1, colors[k]],
         ]) {
           features.push({
             type: 'Feature',
@@ -623,6 +622,45 @@
       }
     }
     return { trains: { type: 'FeatureCollection', features }, lights: { type: 'FeatureCollection', features: lights } };
+  }
+
+  // 編成の組み方と先頭の位置。併結・切り離しをする列車は、相手に合わせて位置と両数を変える。
+  //   carPitch: 1 両分の長さ (連結面の隙間を含む、表示の誇張込み)
+  function consist(tr, carPitch) {
+    const sv = tr.service;
+    const c = tr.pattern.couple;
+    const d = tr.dist;
+    const colors = Array(sv.cars).fill(sv.color);
+    const base = { head: d, cars: sv.cars, colors, pos: null, allowBehind: false };
+    if (c && (c.role === 'lead-join' || c.role === 'lead-split')) {
+      // しおかぜ: 宇多津を発車したら (松山行き) / 宇多津に着くまで (松山から) いしづち の 3 両を後ろにつなぐ
+      const attached = c.role === 'lead-join' ? tr.elapsed >= c.at : tr.elapsed < c.at;
+      if (attached) {
+        base.cars = sv.cars + c.cars;
+        base.colors = colors.concat(Array(c.cars).fill(c.color));
+      }
+    } else if (c && c.role === 'join') {
+      // いしづち (宇多津止まり): 終点の手前でゆっくり詰め、しおかぜ の最後尾のすぐ後ろに止まる
+      const back = c.partnerCars * carPitch;
+      const ramp = Math.min(1, Math.max(0, (d - (tr.pattern.length - 2 * back)) / (2 * back)));
+      if (ramp > 0) {
+        base.head = d - back * ramp;
+        return base;
+      }
+    } else if (c && c.role === 'split') {
+      // いしづち (宇多津始発): 切り離された位置 (しおかぜ の後ろ) から動き出し、だんだん自分の経路に乗る
+      const back = c.partnerCars * carPitch;
+      const ramp = Math.min(1, Math.max(0, d / (2 * back)));
+      base.head = d - back * (1 - ramp);
+      // 駅より手前 (負の距離) は、しおかぜ が走ってきた線路の上に置く
+      base.pos = x => c.partner.pointAt(c.stationCum + x);
+      base.allowBehind = true;
+      return base;
+    }
+    // 始発駅では編成全体がホームに収まるよう、先頭を 1 編成分だけ前に置く
+    const trainLen = Math.min(base.cars * carPitch, tr.pattern.length);
+    base.head = Math.max(d, trainLen);
+    return base;
   }
 
   function light(c, color) {
@@ -664,6 +702,7 @@
       lastBoard = now;
       if (state.station) renderStation();
       if (state.airport) renderAirportFlights();
+      if (state.selected) renderInfo(); // 併結・切り離しで列車名や両数が変わる
       renderChartNow();
     }
   }
@@ -742,7 +781,16 @@
       document.getElementById('info-stops').replaceChildren();
       return;
     }
-    if (tr.waiting) {
+    const cp = tr.pattern.couple;
+    if (cp && cp.role === 'split' && tr.waiting) {
+      status = `${cp.station}で ${cp.partnerName} から切り離し（${formatTime(tr.dep).slice(0, 5)} 発）`;
+    } else if (cp && cp.role === 'join' && tr.stopped && tr.at === path.length - 1) {
+      status = `${cp.station}で ${cp.partnerName} の後ろに連結（併結して松山へ）`;
+    } else if (cp && cp.role === 'lead-join' && tr.stopped && tr.at === cp.index) {
+      status = `${cp.station}で ${cp.name.replace('特急 ', '')} と連結中（${formatTime(tr.dep + cp.at).slice(0, 5)} 発）`;
+    } else if (cp && cp.role === 'lead-split' && tr.stopped && tr.at === cp.index) {
+      status = `${cp.station}で ${cp.name.replace('特急 ', '')} を切り離し（${formatTime(tr.dep + tr.segs[tr.seg].t0).slice(0, 5)} 発）`;
+    } else if (tr.waiting) {
       status = `${path[0][0]} で${ship ? '出港' : '発車'}待ち（${formatTime(tr.dep).slice(0, 5)} 発）`;
     } else if (tr.stopped && tr.at === path.length - 1) {
       status = `${path[tr.at][0]} に${ship ? '入港' : '到着'}しました`;
@@ -798,7 +846,10 @@
       : sv.loop ? '' : `${p.destination} 行`;
     const origin = p.path[0][0];
     document.getElementById('info-swatch').style.background = sv.color;
-    document.getElementById('info-name').textContent = sv.name;
+    const cpl = p.couple;
+    const coupledNow = cpl && ((cpl.role === 'lead-join' && tr.elapsed >= cpl.at) || (cpl.role === 'lead-split' && tr.elapsed < cpl.at));
+    document.getElementById('info-name').textContent =
+      coupledNow ? `${sv.name}・${cpl.name.replace('特急 ', '')}（${sv.cars + cpl.cars}両）` : sv.name;
     document.getElementById('info-dest').textContent = dest;
     document.getElementById('info-detail').textContent =
       (sv.kind === 'plane'
